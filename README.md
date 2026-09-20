@@ -40,6 +40,75 @@ docker compose up --build
 | `config/` | `houses.json`, `rules.yaml`, `norms.yaml` — справочники |
 | `docs/` | [`api.md`](docs/api.md) — контракт api; [`max-notes.md`](docs/max-notes.md) — источник правды по MAX Bot API |
 
+## Журнал изменений
+
+Полная версия с обоснованиями решений — **[docs/CHANGELOG.pdf](docs/CHANGELOG.pdf)**
+(открывается с телефона). Источник — [`docs/changelog.html`](docs/changelog.html),
+пересборка: `node scripts/build-changelog-pdf.mjs`.
+
+Дни считаются от дедлайна: Д-0 — день сдачи.
+
+### Д-9 · КТ-1: сквозной провод MAX → бот → API → БД
+
+Коммит `1202912`. Контрольная точка закрыта, цепочка подтверждена живым сообщением в MAX.
+
+**Добавлено**
+- Схема БД: `organizations`, `houses`, `routing_rules`, `residents`, `tickets`, `ticket_events` — с enum-типами, индексами и триггером на `updated_at`
+- Миграции на `node-pg-migrate` (не knex: knex — query builder, он завёл бы вторую точку правды о схеме)
+- Одноразовый сервис `migrate` в compose — применяет схему до старта `api`
+- `db/seed.js` — тестовые организации и дома; идемпотентный, автоматически **не** запускается
+- API: `POST /residents/find-or-create`, `POST /tickets`, `GET /tickets/:id`
+- Валидация на TypeBox (не Zod: TypeBox даёт JSON Schema, которым Fastify и валидирует, и сериализует, и типизирует — без адаптера)
+- Единый конверт ошибок с машиночитаемым `code`
+- `bot/src/api-client.ts` — со своим таймаутом, чтобы зависший api не подвесил цикл long polling
+- [`docs/api.md`](docs/api.md) — контракт API для клиента
+
+**Изменено**
+- `GET /health` теперь проверяет и соединение с БД, при недоступной отдаёт 503
+- Приветствие бота содержит `resident.id` — это и есть доказательство сквозного прохода
+- `api/src/index.ts`: заглушка → bootstrap с корректной остановкой и закрытием пула
+- Порядок запуска: `db (healthy) → migrate (код 0) → api (healthy) → bot`
+
+**Исправлено**
+- Битый JSON в запросе отдавал `500 internal_error` вместо `400`: обработчик схлопывал в 500 ошибки самого Fastify, у которых есть свой `statusCode`
+
+**Отменено**
+- Решение Д-10 «у бота нет `depends_on`» — зависимость от api стала настоящей.
+  Исходный риск «бот молчит» снят **в коде, а не в compose**: если api не ответил,
+  бот здоровается без ID, но не молчит
+
+### Д-10 · Допуск: бот отвечает в MAX
+
+Коммиты `95c28e9`, `d9df482`, `3112b7b`. С нуля до работающего бота плюс инфраструктура.
+
+**Добавлено**
+- Бот: `/start` и эхо через MAX Bot API, long polling (не требует публичного HTTPS-домена)
+- Свой тонкий клиент MAX на `fetch`, без SDK — проверенный npm-SDK ходил на домен, умерший после миграции API в июле 2026
+- Обработка **двух** событий старта: `bot_started` (кнопка «Старт») и текстовый `/start` — без первой ветки бот молчал бы на первом же экране
+- `docker-compose.yml`: `bot`, `api`, `db` с healthcheck через `pg_isready`
+- Защита от секретов: `.githooks/pre-commit` + `scripts/check-secrets.sh`
+- `bot/certs/` — цепочка Russian Trusted CA (публичный сертификат, не секрет)
+- `.gitattributes` — иначе POSIX-скрипты ломаются на Linux/Mac из-за CRLF
+- Документация: `CLAUDE.md`, [`docs/max-notes.md`](docs/max-notes.md), [`docs/RUN.md`](docs/RUN.md), [`docs/EXPLANATORY-NOTE.md`](docs/EXPLANATORY-NOTE.md)
+
+**Изменено / удалено**
+- Из рабочей копии `.env.example` убран реальный токен, файл заменён на плейсхолдеры
+- `.gitignore` дополнен: секреты, сборка, IDE, дампы БД
+
+**Исправлено**
+- Бот не стартовал с `fetch failed`: `platform-api2.max.ru` подписан Russian Trusted CA (Минцифры РФ), которого нет во встроенном списке Node.js → `NODE_EXTRA_CA_CERTS`
+- Правило `*.pem` в `.gitignore` молча выбрасывало легитимный сертификат из индекса
+- `node --env-file` не доставляет `NODE_EXTRA_CA_CERTS` вовремя → `cross-env`
+
+### Аудит секретов
+
+**Токенов и ключей в истории репозитория нет** — поиск по всем объектам всех коммитов,
+0 совпадений. Предположение Д-10 о том, что токен попал в первый коммит, **не подтвердилось**:
+в `1a55d02` строка была `BOT_TOKEN=` с пустым значением. Перевыпуск токена и переписывание
+истории не требуются. Задача, стоявшая в плане на Д-3, закрыта досрочно.
+
+Повторить: `sh scripts/check-secrets.sh --tracked`
+
 ## Для разработчиков
 
 Правила работы с репозиторием — в [CLAUDE.md](CLAUDE.md): формат коммитов,
@@ -47,3 +116,7 @@ docker compose up --build
 
 Про MAX Bot API читать **только** [`docs/max-notes.md`](docs/max-notes.md).
 Статьи и SDK в интернете описывают API до миграции июля 2026 и не работают.
+
+Журнал изменений пополняется в конце каждого дня: правится
+[`docs/changelog.html`](docs/changelog.html), пересобирается PDF, дублируется
+краткая версия в этот README.

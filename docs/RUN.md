@@ -65,6 +65,29 @@ docker compose exec db psql -U max -d max_dispatcher -c "SELECT * FROM residents
 намеренно продолжает здороваться, а не молчит; причина будет в
 `docker compose logs bot` строкой «api недоступен — приветствие без ID».
 
+## Журнал изменений
+
+Список изменений по дням живёт в трёх местах, и все три обновляются вместе:
+
+| Файл | Что это |
+|---|---|
+| [`changelog.html`](changelog.html) | **источник**, правится руками |
+| [`CHANGELOG.pdf`](CHANGELOG.pdf) | производный артефакт для чтения с телефона |
+| [`../README.md`](../README.md) | краткая версия на главной странице |
+
+Пересобрать PDF после правки HTML:
+
+```bash
+node scripts/build-changelog-pdf.mjs
+```
+
+Скрипт использует уже установленный Chrome или Edge в headless-режиме — ничего
+качать не нужно. Если браузер лежит в нетипичном месте:
+
+```bash
+CHROME_PATH=/path/to/chrome node scripts/build-changelog-pdf.mjs
+```
+
 ## Работа с БД
 
 ```bash

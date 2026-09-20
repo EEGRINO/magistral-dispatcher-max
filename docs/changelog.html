@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Журнал изменений — Диспетчер обращений</title>
+<style>
+  @page { size: A4; margin: 14mm 13mm 16mm 13mm; }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --violet:        #4C1D95;
+    --violet-bar:    #5B21B6;
+    --violet-soft:   #EDE9FE;
+    --violet-line:   #DDD6FE;
+    --ink:           #1F2937;
+    --muted:         #6B7280;
+    --rule:          #E5E7EB;
+    --green:         #059669;
+    --green-soft:    #ECFDF5;
+    --amber:         #B45309;
+    --amber-soft:    #FFFBEB;
+    --red:           #B91C1C;
+    --red-soft:      #FEF2F2;
+  }
+
+  /* Цвета фона обязаны печататься — иначе плашки и выноски исчезнут в PDF. */
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    /* 11pt, а не типовые 9–10: документ читают с телефона. */
+    font: 11pt/1.55 "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+  }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 25pt;
+    line-height: 1.15;
+    color: var(--violet);
+    letter-spacing: -0.4px;
+  }
+
+  .subtitle { margin: 0; font-size: 11.5pt; color: #374151; }
+  .meta     { margin: 3px 0 0; font-size: 9.5pt; color: var(--muted); }
+
+  .titleblock { border-bottom: 3px solid var(--violet-line); padding-bottom: 14px; margin-bottom: 18px; }
+
+  /* Плашка раздела — как в плане разработки. */
+  h2 {
+    margin: 26px 0 14px;
+    padding: 8px 12px;
+    background: var(--violet-bar);
+    color: #fff;
+    font-size: 13pt;
+    font-weight: 600;
+    border-radius: 3px;
+    /* Заголовок не должен остаться внизу страницы без своего текста. */
+    break-after: avoid;
+  }
+
+  h3 {
+    margin: 20px 0 8px;
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: var(--violet);
+    break-after: avoid;
+  }
+
+  p { margin: 0 0 10px; }
+
+  /* Бейдж дня. */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    background: var(--violet);
+    color: #fff;
+    font-size: 9.5pt;
+    font-weight: 700;
+    border-radius: 3px;
+    margin-right: 8px;
+    letter-spacing: 0.3px;
+  }
+
+  .dayline { margin: 0 0 12px; font-size: 11pt; }
+  .dayline .goal { color: var(--muted); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 14px;
+    font-size: 10pt;
+    break-inside: auto;
+  }
+
+  th {
+    background: var(--violet-soft);
+    color: var(--violet);
+    text-align: left;
+    font-weight: 700;
+    padding: 7px 9px;
+    border: 1px solid var(--violet-line);
+    font-size: 9.5pt;
+  }
+
+  td {
+    padding: 7px 9px;
+    border: 1px solid var(--rule);
+    vertical-align: top;
+  }
+
+  /* Строка таблицы не должна разрываться между страницами. */
+  tr { break-inside: avoid; }
+
+  td.what { width: 42%; font-weight: 600; }
+  td.hash { width: 15%; white-space: nowrap; font-family: Consolas, "Courier New", monospace; font-size: 9pt; }
+
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9.2pt;
+    background: #F3F4F6;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  /* Выноски. */
+  .note, .ok, .warn, .danger {
+    padding: 10px 13px;
+    margin: 0 0 14px;
+    border-left: 4px solid;
+    border-radius: 0 3px 3px 0;
+    font-size: 10pt;
+    break-inside: avoid;
+  }
+  .note   { background: var(--violet-soft); border-color: var(--violet-bar); }
+  .ok     { background: var(--green-soft);  border-color: var(--green); }
+  .warn   { background: var(--amber-soft);  border-color: var(--amber); }
+  .danger { background: var(--red-soft);    border-color: var(--red); }
+
+  .note strong   { color: var(--violet); }
+  .ok strong     { color: var(--green); }
+  .warn strong   { color: var(--amber); }
+  .danger strong { color: var(--red); }
+
+  ul { margin: 0 0 10px; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+
+  .footer {
+    margin-top: 26px;
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+    font-size: 8.5pt;
+    color: var(--muted);
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 8.5pt;
+    font-weight: 700;
+  }
+  .tag-add { background: #DCFCE7; color: #166534; }
+  .tag-chg { background: #DBEAFE; color: #1E40AF; }
+  .tag-fix { background: #FEF3C7; color: #92400E; }
+  .tag-del { background: #FEE2E2; color: #991B1B; }
+</style>
+</head>
+<body>
+
+<div class="titleblock">
+  <h1>Журнал изменений</h1>
+  <p class="subtitle">Диспетчер обращений по авариям и заявкам · чат-бот в MAX · трек «Умный город»</p>
+  <p class="meta">Хакатон MAX · онлайн-этап · рабочий документ команды · репозиторий <code>EEGRINO/-MAX-</code> (приватный)</p>
+</div>
+
+<div class="note">
+  <strong>Как читать.</strong> Дни нумеруются относительно дедлайна: Д‑0 — день сдачи,
+  Д‑10 — за десять дней до него. Внутри дня изменения сгруппированы по типу:
+  <span class="tag tag-add">добавлено</span>
+  <span class="tag tag-chg">изменено</span>
+  <span class="tag tag-fix">исправлено</span>
+  <span class="tag tag-del">удалено / отменено</span>.
+  Отдельным разделом вынесены <strong>отменённые решения</strong> — то, что было сделано, а потом
+  сознательно переиграно, с причиной. Время коммитов — по часам машины сборки.
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑10 · Допуск: бот отвечает в MAX</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  С нуля до работающего бота в MAX плюс инфраструктура запуска одной командой.
+</p>
+
+<div class="warn">
+  <strong>Почему именно это первым.</strong> По методичке проверка бота в MAX — допуск,
+  а не функция: если бот не отвечает, решение получает 0 баллов и дальше не оценивается.
+  Поэтому первым коммитом шёл рабочий <code>/start</code>, а не архитектурный скелет.
+</div>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Бот: <code>/start</code> и эхо через MAX Bot API, long polling</td>
+    <td>Long polling не требует публичного HTTPS-домена и туннеля — бот поднимается где угодно, на демо меньше точек отказа</td>
+  </tr>
+  <tr>
+    <td class="what">Свой тонкий клиент MAX на <code>fetch</code>, без SDK</td>
+    <td>В июле 2026 MAX сменил домен на <code>platform-api2.max.ru</code> и запретил токен в query. Проверенный npm-SDK всё ещё ходил на мёртвый адрес</td>
+  </tr>
+  <tr>
+    <td class="what">Обработка двух событий старта: <code>bot_started</code> и текстового <code>/start</code></td>
+    <td>Это разные события MAX. При нажатии кнопки «Старт» <code>message_created</code> не приходит вовсе — без отдельной ветки бот молчал бы на первом же экране</td>
+  </tr>
+  <tr>
+    <td class="what"><code>docker-compose.yml</code>: bot, api, db</td>
+    <td>Запуск одной командой — требование сдачи. У БД healthcheck через <code>pg_isready</code>, а не проверка порта: порт открывается раньше готовности базы</td>
+  </tr>
+  <tr>
+    <td class="what">Защита от секретов: <code>.githooks/pre-commit</code> + <code>scripts/check-secrets.sh</code></td>
+    <td>Блокирует коммит с токеном, ключом или файлом <code>.env</code>. Хук лежит в репозитории, а не в <code>.git/hooks</code>, — достаётся всей команде</td>
+  </tr>
+  <tr>
+    <td class="what"><code>bot/certs/</code> — цепочка Russian Trusted CA</td>
+    <td>См. «исправлено» ниже. Публичный сертификат, не секрет</td>
+  </tr>
+  <tr>
+    <td class="what"><code>.gitattributes</code></td>
+    <td>Без него Windows-git отдаёт POSIX-скрипты с CRLF, и <code>pre-commit</code> ломается при клонировании на Linux/Mac</td>
+  </tr>
+  <tr>
+    <td class="what">Документация: <code>CLAUDE.md</code>, <code>docs/max-notes.md</code>, <code>docs/RUN.md</code>, <code>docs/EXPLANATORY-NOTE.md</code></td>
+    <td><code>max-notes.md</code> — единственный источник правды по MAX Bot API: материалы в интернете описывают API до миграции и возвращают 401</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-chg">изменено</span> <span class="tag tag-del">удалено</span></h3>
+
+<ul>
+  <li><strong>Из рабочей копии <code>.env.example</code> убран реальный токен</strong>, файл заменён на плейсхолдеры; рабочее значение перенесено в локальный <code>.env</code> (он в <code>.gitignore</code>). В git токен при этом не попадал — см. раздел «Аудит секретов».</li>
+  <li><code>.gitignore</code> дополнен разделами: секреты, артефакты сборки, файлы IDE, дампы БД.</li>
+</ul>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Симптом</th><th>Настоящая причина и решение</th></tr>
+  <tr>
+    <td class="what">Бот не стартовал: <code>fetch failed</code> на каждой попытке опроса</td>
+    <td><code>platform-api2.max.ru</code> подписан цепочкой Russian Trusted CA (Минцифры РФ). Windows и <code>curl</code> ей доверяют, встроенный список CA у Node.js — нет, отсюда <code>UNABLE_TO_GET_ISSUER_CERT_LOCALLY</code>. Сертификат снят с боевого сервера, проверен <code>openssl verify</code> и подключается через <code>NODE_EXTRA_CA_CERTS</code></td>
+  </tr>
+  <tr>
+    <td class="what">Сертификат молча не попадал в коммит</td>
+    <td>Правило <code>*.pem</code> в <code>.gitignore</code>, добавленное против приватных ключей, отсекало и легитимный публичный сертификат. Добавлено точечное исключение для <code>bot/certs/*.pem</code></td>
+  </tr>
+  <tr>
+    <td class="what">Переменная задана, но TLS всё равно падает</td>
+    <td><code>node --env-file</code> не подходит для <code>NODE_EXTRA_CA_CERTS</code>: она читается нативным TLS-слоем раньше, чем <code>--env-file</code> успевает записать её в <code>process.env</code>. Передаётся через <code>cross-env</code>. В Docker ловушки нет — compose кладёт переменные в окружение до старта процесса</td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">95c28e9</td><td>feat(bot): рабочий /start и эхо через MAX Bot API</td><td class="hash">15:54</td></tr>
+  <tr><td class="hash">d9df482</td><td>fix(bot): доверять Russian Trusted CA, иначе fetch к MAX падает</td><td class="hash">16:31</td></tr>
+  <tr><td class="hash">3112b7b</td><td>docs: гайд по запуску и пояснительная записка</td><td class="hash">16:40</td></tr>
+</table>
+
+<div class="ok">
+  <strong>Проверено:</strong> бот ответил на <code>/start</code> и эхо реальным пользователям в MAX;
+  <code>docker compose up</code> поднимает все три сервиса одной командой.
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑9 · КТ‑1: сквозной провод MAX → бот → API → БД</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Контрольная точка закрыта: цепочка работает целиком и подтверждена живым сообщением в MAX.
+</p>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Схема БД: <code>organizations</code>, <code>houses</code>, <code>routing_rules</code>, <code>residents</code>, <code>tickets</code>, <code>ticket_events</code></td>
+    <td>Состав таблиц и полей задан разработчиком и согласован. Плюс enum-типы, индексы и триггер на <code>updated_at</code></td>
+  </tr>
+  <tr>
+    <td class="what">Миграции на <code>node-pg-migrate</code>, а не knex</td>
+    <td>Knex — query builder, он появился бы в проекте только ради миграций и создал бы вторую точку правды о схеме. Тело миграции — сырой SQL, читается без знания JS</td>
+  </tr>
+  <tr>
+    <td class="what">Одноразовый сервис <code>migrate</code> в compose</td>
+    <td>Схема применяется до старта <code>api</code> (<code>service_completed_successfully</code>). Отдельным сервисом: видно в выводе, не гонка при нескольких репликах, перезапуск без трогания api</td>
+  </tr>
+  <tr>
+    <td class="what"><code>db/seed.js</code> — тестовые организации и дома</td>
+    <td>Идемпотентный, помечен как тестовый, автоматически <strong>не</strong> запускается: подсовывать выдуманные данные в любую поднятую БД нельзя</td>
+  </tr>
+  <tr>
+    <td class="what">API: <code>POST /residents/find-or-create</code>, <code>POST /tickets</code>, <code>GET /tickets/:id</code></td>
+    <td>Минимум под сквозной проход. <code>find-or-create</code> идемпотентен через <code>ON CONFLICT</code> — два быстрых <code>/start</code> подряд не создадут дубль</td>
+  </tr>
+  <tr>
+    <td class="what">Валидация на TypeBox, а не Zod</td>
+    <td>TypeBox даёт обычный JSON Schema: Fastify одной схемой и проверяет вход, и сериализует ответ, и выводит типы. Zod потребовал бы адаптер</td>
+  </tr>
+  <tr>
+    <td class="what">Единый конверт ошибок с машиночитаемым <code>code</code></td>
+    <td>Клиент ветвится по <code>code</code>, а не по тексту сообщения</td>
+  </tr>
+  <tr>
+    <td class="what"><code>bot/src/api-client.ts</code></td>
+    <td>Отдельно от клиента MAX: это разные внешние миры с разной политикой ошибок. Свой таймаут, чтобы зависший api не подвесил цикл long polling</td>
+  </tr>
+  <tr>
+    <td class="what"><code>docs/api.md</code> — контракт API</td>
+    <td>На него завязан клиент мини-приложения. Меняется эндпоинт — правится тем же коммитом</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-chg">изменено</span></h3>
+
+<ul>
+  <li><strong><code>GET /health</code> теперь проверяет и соединение с БД</strong>, при недоступной отвечает 503. На него завязан healthcheck compose, а от него — порядок запуска бота.</li>
+  <li><strong>Приветствие бота содержит <code>resident.id</code></strong> — это и есть доказательство сквозного прохода. Временная логика: полноценный сценарий диалога придёт на Д‑7.</li>
+  <li><code>api/src/index.ts</code>: заглушка заменена на bootstrap с корректной остановкой (сначала перестаём принимать запросы, потом закрываем пул соединений).</li>
+  <li>Порядок запуска в compose: <code>db (healthy) → migrate (код 0) → api (healthy) → bot</code>.</li>
+  <li><code>db/README.md</code> переписан: команды миграций и правило «применённые миграции не редактируем».</li>
+</ul>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Симптом</th><th>Настоящая причина и решение</th></tr>
+  <tr>
+    <td class="what">Битый JSON в запросе отдавал <code>500 internal_error</code></td>
+    <td>Обработчик схлопывал в 500 ошибки самого Fastify, у которых есть собственный <code>statusCode: 400</code>. По такому ответу клиент искал бы проблему на сервере вместо своего запроса. Теперь 4xx отдаётся как есть, с кодом <code>bad_request</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">1202912</td><td>feat: КТ‑1 — сквозной провод MAX → бот → api → БД</td><td class="hash">20:27</td></tr>
+</table>
+
+<div class="ok">
+  <strong>Проверено:</strong> на снесённом томе поднято с нуля — порядок запуска, применение миграций,
+  все эндпоинты включая ошибочные пути, идемпотентность <code>find-or-create</code> и seed.
+  Живой <code>/start</code> в MAX вернул <code>Ваш ID: 1</code>; запись в <code>residents</code> подтверждена запросом psql.
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Отменённые решения</h2>
+
+<p>Раздел для тех, кто вернётся к коду через неделю: здесь то, что было сделано осознанно,
+а потом так же осознанно переиграно. Чтобы никто не «чинил» обратно.</p>
+
+<table>
+  <tr><th>Решение</th><th>Когда и почему отменено</th></tr>
+  <tr>
+    <td class="what">У сервиса <code>bot</code> намеренно нет <code>depends_on</code><br><span style="color:var(--muted);font-weight:400">принято на Д‑10</span></td>
+    <td>
+      <strong>Отменено на Д‑9.</strong> На Д‑10 бот ни от чего не зависел, и привязка к чужому
+      healthcheck означала бы «бот молчит из-за упавшей БД» — худшее, что может случиться на защите.
+      На Д‑9 зависимость стала настоящей: на <code>/start</code> бот идёт в api за жителем.
+      <br><br>
+      Исходный риск при этом никуда не делся и снят <strong>в коде, а не в compose</strong>:
+      если api не ответил, бот здоровается без ID, но не молчит. <code>depends_on</code> управляет
+      только порядком старта и не защищает от падения api через час после запуска.
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Заглушка <code>GET /health</code> без проверки БД<br><span style="color:var(--muted);font-weight:400">принято на Д‑10</span></td>
+    <td>
+      <strong>Заменено на Д‑9.</strong> Пока БД не использовалась, хватало ответа «процесс жив».
+      После появления схемы такой healthcheck стал врать: api мог считаться healthy, не видя базу,
+      и бот стартовал бы в пустоту.
+    </td>
+  </tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Аудит секретов</h2>
+
+<div class="ok">
+  <strong>Результат: токенов и ключей в истории репозитория нет.</strong>
+  Поиск выполнен по всем объектам всех коммитов и веток — 0 совпадений.
+</div>
+
+<p>
+  На Д‑10 было высказано предположение, что токен бота попал в первый коммит и был запушен.
+  <strong>Предположение оказалось неверным.</strong> В коммите <code>1a55d02</code> строка выглядела как
+  <code>BOT_TOKEN=</code> — с пустым значением. Реальный токен существовал только в рабочей копии файла
+  на диске и был заменён плейсхолдерами раньше, чем попал в индекс.
+</p>
+
+<p>
+  Практический вывод: <strong>перевыпускать токен не требуется</strong>, переписывать историю git не требуется.
+  Задача «аудит истории на секреты», стоявшая в плане на Д‑3, выполнена досрочно и закрыта.
+  Повторить проверку в любой момент можно командой из <code>scripts/check-secrets.sh --tracked</code>.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Что дальше</h2>
+
+<table>
+  <tr><th>День</th><th>Этап</th><th>Результат, по которому будем считать готовым</th></tr>
+  <tr><td class="what">Д‑8</td><td>Данные и правила маршрутизации</td><td><code>resolve(type, place, houseId)</code> возвращает ответственного, срок и ссылку на норматив; добавление строки в конфиг меняет поведение без пересборки образа</td></tr>
+  <tr><td class="what">Д‑7</td><td>Основной сценарий бота</td><td>Сценарий жителя проходится от QR-кода до номера заявки в мобильной и веб-версии MAX</td></tr>
+  <tr><td class="what">Д‑5</td><td>Мини-приложение диспетчера</td><td>Диспетчер меняет статус, изменение видно в списке после перезагрузки</td></tr>
+  <tr><td class="what">Д‑4</td><td>Замыкание петли уведомлений</td><td>Смена статуса → житель получает уведомление в боте за секунды</td></tr>
+</table>
+
+<div class="warn">
+  <strong>Открытый вопрос к Д‑7.</strong> Сейчас житель заводится в БД только по <code>/start</code>.
+  Человек, начавший диалог обычным сообщением, в базу не попадает — в логах такой чат уже наблюдался.
+  Заводить жителя на любом первом сообщении или оставить только по <code>/start</code> — это поведение
+  диалогового автомата, решается вместе со сценарием.
+</div>
+
+<div class="footer">
+  Журнал обновляется в конце каждого дня разработки. Источник — <code>docs/changelog.html</code>,
+  PDF пересобирается командой из <code>docs/RUN.md</code>. Актуальный список изменений
+  также продублирован на главной странице репозитория (<code>README.md</code>).
+</div>
+
+</body>
+</html>
