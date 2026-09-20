@@ -9,12 +9,13 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "dev": "npm run build && node --env-file=../.env dist/index.js",
+    "start": "cross-env NODE_EXTRA_CA_CERTS=certs/russian-trusted-ca-chain.pem node dist/index.js",
+    "dev": "npm run build && cross-env NODE_EXTRA_CA_CERTS=certs/russian-trusted-ca-chain.pem node --env-file=../.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
+    "cross-env": "^7.0.3",
     "typescript": "^5.6.3"
   }
 }

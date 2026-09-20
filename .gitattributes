@@ -1,0 +1,8 @@
+# Без этого Windows-git конвертирует эти файлы в CRLF при чекауте, и они
+# ломаются на Linux/Mac ("bad interpreter") — а именно так их запускает и
+# pre-commit хук, и Docker (COPY внутрь Alpine-контейнера копирует файл
+# таким, каким его вывел чекаут на хосте).
+.githooks/* text eol=lf
+scripts/*.sh text eol=lf
+*.pem text eol=lf
+Dockerfile text eol=lf

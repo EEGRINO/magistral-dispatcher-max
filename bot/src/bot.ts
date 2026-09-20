@@ -65,6 +65,10 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
     // при этом НЕ приходит, поэтому без этой ветки бот молчит на первом экране.
     case 'bot_started': {
       log.info('диалог начат', { target });
+      // Точная форма bot_started в доке описана нечётко (см. docs/max-notes.md).
+      // При LOG_LEVEL=debug видно сырое событие — полезно, если resolveTarget
+      // вдруг перестанет находить адресата после изменений в API.
+      log.debug('bot_started raw', { update });
       await api.sendMessage(target, messages.greeting, shutdown.signal);
       return;
     }

@@ -20,6 +20,47 @@
 - npm-пакет `max-bot-ts` на момент проверки всё ещё ходил в старый `platform-api.max.ru`.
   Поэтому в проекте **свой тонкий клиент на `fetch`**, без SDK — см. `bot/src/max-api.ts`.
 
+## ⚠️ TLS: Node.js не доверяет сертификату platform-api2.max.ru «из коробки»
+
+`platform-api2.max.ru` подписан цепочкой **Russian Trusted Root/Sub CA**
+(Минцифры России). Windows и браузеры этому CA доверяют, а встроенный
+список доверенных CA у Node.js (из Mozilla) — нет. Итог:
+
+```
+TypeError: fetch failed
+  cause: Error: unable to get local issuer certificate
+  code: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY'
+```
+
+При этом `curl` тот же запрос выполняет без единой жалобы (использует
+системное хранилище сертификатов Windows) — из-за этого расхождения
+можно долго думать на сеть или файрвол, хотя дело в CA Node.js.
+
+**Решение:** `NODE_EXTRA_CA_CERTS`, указывающий на связку Root+Sub CA,
+вшитую в репозиторий — [`bot/certs/russian-trusted-ca-chain.pem`](../bot/certs/russian-trusted-ca-chain.pem)
+(подробности добычи — там же, в `bot/certs/README.md`). Переменная задана
+в `.env.example` и прокинута в `docker-compose.yml`, поэтому и `npm run dev`,
+и `docker compose up` получают её одинаково.
+
+Альтернатива — флаг `node --use-system-ca`: работает локально на машине,
+где Windows уже доверяет этому CA, но бесполезен в чистом Alpine-образе
+(там этого CA просто нет), поэтому для проекта выбран переносимый вариант
+через `NODE_EXTRA_CA_CERTS`.
+
+Если после `docker compose up` бот снова падает на этой ошибке — проверить,
+что `certs/` действительно попал в образ (`docker compose exec bot ls certs/`)
+и что `NODE_EXTRA_CA_CERTS` виден процессу (`docker compose exec bot env | grep CA_CERTS`).
+
+**Ловушка:** `node --env-file=.env` для этой переменной не работает, хотя для
+остальных (`MAX_BOT_TOKEN` и т.д.) — работает. `NODE_EXTRA_CA_CERTS` читается
+нативным TLS-слоем на старте процесса, раньше, чем `--env-file` успевает
+положить её в `process.env`. `process.env.NODE_EXTRA_CA_CERTS` внутри кода
+покажет правильное значение, а `fetch` всё равно упадёт с той же ошибкой —
+переменная должна быть в окружении ДО запуска `node`. Поэтому в
+`bot/package.json` она передана через `cross-env`, а не через `--env-file`.
+В Docker эта ловушка не встречается: `docker-compose` кладёт переменные
+в окружение контейнера до старта процесса, ровно как нужно.
+
 ## Транспорт: long polling (выбран для MVP)
 
 Одновременно может быть активен **только один** способ доставки — webhook **или** long polling.

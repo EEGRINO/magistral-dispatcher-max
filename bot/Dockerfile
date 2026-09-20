@@ -20,6 +20,10 @@ ENV NODE_ENV=production
 COPY package.json ./
 COPY --from=build /app/dist ./dist
 
+# Russian Trusted CA для platform-api2.max.ru — см. certs/README.md.
+# Нужен и здесь, в runtime-стадии: именно из неё стартует контейнер.
+COPY certs ./certs
+
 # Не root: процесс ходит только наружу по HTTPS, привилегии ему не нужны.
 USER node
 
