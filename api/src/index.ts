@@ -1,38 +1,43 @@
 /**
- * Каркас API. Сегодня здесь намеренно только /health: он нужен,
- * чтобы `docker compose up` было чем проверить.
+ * Точка входа api.
  *
- * Контракт API, маршрутизация заявок и работа с БД — задачи следующих дней,
- * и схема БД требует согласования с разработчиком (см. CLAUDE.md).
+ * Динамический импорт — чтобы ошибка конфигурации (нет DATABASE_URL)
+ * превратилась в одну понятную строку, а не в стектрейс модуля.
  */
-import Fastify from 'fastify';
+try {
+  const { buildApp } = await import('./app.js');
+  const { config } = await import('./config.js');
+  const { pool } = await import('./db.js');
 
-const app = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL ?? 'info',
-  },
-});
+  const app = buildApp();
 
-app.get('/health', async () => ({
-  status: 'ok',
-  service: 'api',
-  ts: new Date().toISOString(),
-}));
+  // 0.0.0.0, а не localhost: внутри контейнера слушать только петлю —
+  // значит быть недоступным и с хоста, и из других сервисов compose.
+  await app.listen({ host: '0.0.0.0', port: config.port });
 
-const port = Number(process.env.PORT ?? 3000);
+  let shuttingDown = false;
 
-if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-  app.log.error(`Некорректный PORT: ${process.env.PORT}`);
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+
+      app.log.info({ signal }, 'остановка');
+
+      // Сначала перестаём принимать запросы, потом закрываем пул —
+      // иначе запрос в полёте упадёт на закрытом соединении.
+      void app
+        .close()
+        .then(() => pool.end())
+        .then(() => process.exit(0))
+        .catch((error: unknown) => {
+          app.log.error({ err: error }, 'ошибка при остановке');
+          process.exit(1);
+        });
+    });
+  }
+} catch (error) {
+  const reason = error instanceof Error ? error.message : String(error);
+  console.error(`\n❌ api не запустился.\n\n${reason}\n`);
   process.exit(1);
-}
-
-// 0.0.0.0, а не localhost: внутри контейнера слушать только петлю —
-// значит быть недоступным с хоста и из других сервисов compose.
-await app.listen({ host: '0.0.0.0', port });
-
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    app.log.info({ signal }, 'остановка');
-    void app.close().then(() => process.exit(0));
-  });
 }

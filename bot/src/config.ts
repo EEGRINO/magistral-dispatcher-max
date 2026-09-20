@@ -53,10 +53,24 @@ export const config = {
 
   pollTimeoutSec: readPollTimeout(),
 
+  /**
+   * Внутренний api. В docker-compose переопределяется на http://api:3000
+   * (имя сервиса в сети compose), локально по умолчанию — localhost.
+   */
+  apiBaseUrl: (process.env.API_BASE_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, ''),
+
+  /** Таймаут запроса к api. Короткий: человек ждёт ответа в чате. */
+  apiTimeoutMs: Number(process.env.API_TIMEOUT_MS ?? 5000),
+
   logLevel: process.env.LOG_LEVEL?.trim() || 'info',
 } as const;
 
 export const messages = {
+  /** Фолбэк, когда api недоступен: лучше поздороваться без ID, чем молчать. */
   greeting: 'Бот на связи. Напиши что-нибудь — я повторю.',
+
+  greetingWithId: (residentId: number): string =>
+    `Бот на связи. Ваш ID: ${residentId}. Напиши что-нибудь — я повторю.`,
+
   nonText: 'Пока я понимаю только текст. Напиши сообщение словами.',
 } as const;

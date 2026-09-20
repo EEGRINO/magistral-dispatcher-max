@@ -1,0 +1,19 @@
+{
+  "name": "max-dispatcher-db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Миграции и seed PostgreSQL",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "migrate": "node-pg-migrate -m migrations",
+    "migrate:up": "node-pg-migrate up -m migrations",
+    "migrate:down": "node-pg-migrate down -m migrations",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.13.1"
+  }
+}

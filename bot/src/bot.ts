@@ -8,11 +8,13 @@
  * Модуль импортируется динамически из index.ts, поэтому падение валидации
  * конфига долетает до обработчика как обычная ошибка, а не как стектрейс.
  */
+import { ApiClient } from './api-client.js';
 import { config, messages } from './config.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxUpdate, type SendTarget } from './max-api.js';
 
 const api = new MaxApi();
+const apiClient = new ApiClient();
 
 /** Один контроллер на всё приложение: abort прерывает висящий long poll при выключении. */
 const shutdown = new AbortController();
@@ -51,6 +53,39 @@ function resolveTarget(update: MaxUpdate): SendTarget | null {
   return null;
 }
 
+/**
+ * Приветствие с подтверждением, что житель дошёл до БД.
+ *
+ * Временная проверочная логика для КТ-1: она доказывает, что цепочка
+ * MAX → бот → api → БД → ответ работает целиком. Полноценный сценарий
+ * диалога появится на Д-7 и это место заменит.
+ *
+ * Если api недоступен — здороваемся без ID, но НЕ молчим: «бот не отвечает»
+ * для жителя гораздо хуже, чем «бот ответил без номера».
+ */
+async function buildGreeting(target: SendTarget): Promise<string> {
+  // chat_id диалога — ключ связки с жителем. user_id как запасной вариант:
+  // у события без chat_id других опознавательных знаков не остаётся.
+  const maxChatId = target.chatId ?? target.userId;
+
+  if (maxChatId === undefined) {
+    log.warn('не удалось определить max_chat_id — приветствие без ID');
+    return messages.greeting;
+  }
+
+  try {
+    const resident = await apiClient.findOrCreateResident(maxChatId, shutdown.signal);
+    log.info('житель сохранён', { resident_id: resident.id, max_chat_id: maxChatId });
+    return messages.greetingWithId(resident.id);
+  } catch (error) {
+    log.error('api недоступен — приветствие без ID', {
+      max_chat_id: maxChatId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return messages.greeting;
+  }
+}
+
 async function handleUpdate(update: MaxUpdate): Promise<void> {
   const target = resolveTarget(update);
 
@@ -69,7 +104,7 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
       // При LOG_LEVEL=debug видно сырое событие — полезно, если resolveTarget
       // вдруг перестанет находить адресата после изменений в API.
       log.debug('bot_started raw', { update });
-      await api.sendMessage(target, messages.greeting, shutdown.signal);
+      await api.sendMessage(target, await buildGreeting(target), shutdown.signal);
       return;
     }
 
@@ -92,7 +127,7 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
       // startsWith, а не ===: MAX умеет deep-link вида "/start ref=qr_подъезд3".
       if (text.startsWith('/start')) {
         log.info('команда /start', { target });
-        await api.sendMessage(target, messages.greeting, shutdown.signal);
+        await api.sendMessage(target, await buildGreeting(target), shutdown.signal);
         return;
       }
 
