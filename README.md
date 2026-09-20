@@ -23,6 +23,10 @@ docker compose up --build
 
 Логи: `docker compose logs -f bot`
 
+Подробная инструкция и разбор типичных проблем первого запуска —
+[`docs/RUN.md`](docs/RUN.md). Описание проблемы, решения и статуса проекта
+для защиты — [`docs/EXPLANATORY-NOTE.md`](docs/EXPLANATORY-NOTE.md).
+
 ## Структура
 
 | Каталог | Что внутри |
