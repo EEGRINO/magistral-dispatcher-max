@@ -1,0 +1,10 @@
+#!/bin/sh
+# Хук лежит в репозитории, а не в .git/hooks, поэтому достаётся всей команде.
+# Включается один раз на машину:
+#
+#   git config core.hooksPath .githooks
+#
+set -eu
+
+root="$(git rev-parse --show-toplevel)"
+sh "$root/scripts/check-secrets.sh"

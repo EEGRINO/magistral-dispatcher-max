@@ -1,0 +1,103 @@
+# Запуск всего проекта одной командой:
+#
+#   cp .env.example .env   # подставить настоящий MAX_BOT_TOKEN
+#   docker compose up --build
+#
+# Ключ "version:" намеренно отсутствует — в Compose v2 он устарел и вызывает warning.
+
+name: max-dispatcher
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-max}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан — заполни .env}
+      POSTGRES_DB: ${POSTGRES_DB:-max_dispatcher}
+      # Без этого postgres:16-alpine ругается на locale при initdb.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      # Именованный том: данные переживают `docker compose down`.
+      # Снести вместе с данными — `docker compose down -v`.
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Наружу — чтобы можно было подключиться psql/DBeaver с хоста.
+      # Внутри сети compose порт всегда 5432, независимо от DB_PORT.
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      # pg_isready, а не проверка порта: порт открывается раньше, чем БД
+      # реально готова принимать запросы, и api стартовал бы в пустоту.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-max} -d ${POSTGRES_DB:-max_dispatcher}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      # Первый запуск дольше: initdb создаёт кластер.
+      start_period: 15s
+    networks:
+      - backend
+
+  # ── API (каркас) ────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${API_PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL не задан — заполни .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${API_PORT:-3000}:${API_PORT:-3000}"
+    depends_on:
+      db:
+        # Ждём именно healthy, а не просто "контейнер запущен".
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+
+  # ── Бот ─────────────────────────────────────────────────────────────────
+  bot:
+    build:
+      context: ./bot
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # `:?` — compose упадёт с внятным сообщением, если .env не заполнен,
+      # вместо того чтобы поднять бота с пустым токеном и словить 401.
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?MAX_BOT_TOKEN не задан — скопируй .env.example в .env}
+      MAX_API_BASE_URL: ${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+      MAX_POLL_TIMEOUT: ${MAX_POLL_TIMEOUT:-90}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Адрес api внутри сети compose. Понадобится, когда появится бизнес-логика.
+      API_BASE_URL: http://api:${API_PORT:-3000}
+
+    # depends_on здесь СОЗНАТЕЛЬНО нет.
+    #
+    # Бот на long polling сам ходит наружу и ни от api, ни от БД сегодня не зависит.
+    # Привязав его к их health, мы бы получили бота, который молчит из-за упавшей
+    # БД — а «бот не отвечает» на хакатоне стоит дороже всего остального вместе взятого.
+    # Появится зависимость от api — появится и depends_on.
+
+    # ports тоже нет: long polling — это исходящие соединения.
+    # Публичный HTTPS-эндпоинт нужен только для webhook.
+    networks:
+      - backend
+
+volumes:
+  pgdata:
+
+networks:
+  backend:
+    driver: bridge

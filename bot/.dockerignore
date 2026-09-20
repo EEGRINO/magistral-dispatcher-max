@@ -1,0 +1,9 @@
+node_modules
+dist
+npm-debug.log*
+*.tsbuildinfo
+
+# Секреты в образ не копируем ни при каких условиях:
+# переменные приходят в рантайме из docker-compose.
+.env
+.env.*
