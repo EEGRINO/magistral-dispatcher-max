@@ -20,10 +20,12 @@
 #
 # Использование:
 #   sudo ./scripts/setup-domain.sh --domain example.ru [--email admin@example.ru]
+#   sudo ./scripts/setup-domain.sh --domain example.ru --miniapp-domain miniapp.example.ru
 #
 set -Eeuo pipefail
 
 DOMAIN=""
+MINIAPP_DOMAIN=""
 EMAIL=""
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FORCE=0
@@ -36,24 +38,29 @@ usage() {
   cat <<'EOF'
 Часть Б — домен и TLS через Caddy в docker-compose.
 
-  --domain NAME     домен, который указывает на этот сервер (обязателен)
-  --email ADDR      e-mail для Let's Encrypt (необязателен; туда шлют
-                    уведомления о проблемах с продлением)
-  --dir PATH        каталог установки (по умолчанию — корень этого репозитория)
-  --force           перезаписать существующий docker-compose.override.yml
-  -h, --help        эта справка
+  --domain NAME          домен для api, указывающий на этот сервер (обязателен)
+  --miniapp-domain NAME  домен для мини-приложения (необязателен). MAX Bridge
+                         требует HTTPS-ссылку на веб-приложение, отдельный
+                         поддомен — самый простой способ её получить, не трогая
+                         SPA-роутинг миниаппа (там try_files на корень "/").
+  --email ADDR           e-mail для Let's Encrypt (необязателен; туда шлют
+                         уведомления о проблемах с продлением)
+  --dir PATH             каталог установки (по умолчанию — корень репозитория)
+  --force                перезаписать существующий docker-compose.override.yml
+  -h, --help             эта справка
 
-Скрипт сначала проверяет, что домен резолвится на IP этого сервера,
-и без этого не делает ничего.
+Каждый указанный домен скрипт сначала проверяет на резолв в IP этого
+сервера, и без этого не делает ничего.
 EOF
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --domain) DOMAIN="${2:?--domain требует значение}"; shift 2 ;;
-    --email)  EMAIL="${2:?--email требует значение}"; shift 2 ;;
-    --dir)    INSTALL_DIR="${2:?--dir требует значение}"; shift 2 ;;
-    --force)  FORCE=1; shift ;;
+    --domain)         DOMAIN="${2:?--domain требует значение}"; shift 2 ;;
+    --miniapp-domain) MINIAPP_DOMAIN="${2:?--miniapp-domain требует значение}"; shift 2 ;;
+    --email)          EMAIL="${2:?--email требует значение}"; shift 2 ;;
+    --dir)            INSTALL_DIR="${2:?--dir требует значение}"; shift 2 ;;
+    --force)          FORCE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Неизвестный аргумент: $1 (см. --help)" ;;
   esac
@@ -62,11 +69,16 @@ done
 [ -n "$DOMAIN" ] || { usage; die "Не задан --domain."; }
 
 # Отсекаем частые опечатки: схему и слэш в значении домена.
-case "$DOMAIN" in
-  http://*|https://*|*/*) die "Домен указывается без схемы и без слэша: example.ru" ;;
-esac
-printf '%s' "$DOMAIN" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$' \
-  || die "Непохоже на доменное имя: ${DOMAIN}"
+validate_domain_syntax() {
+  case "$1" in
+    http://*|https://*|*/*) die "Домен указывается без схемы и без слэша: example.ru (получено: $1)" ;;
+  esac
+  printf '%s' "$1" | grep -qE '^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$' \
+    || die "Непохоже на доменное имя: $1"
+}
+validate_domain_syntax "$DOMAIN"
+[ -n "$MINIAPP_DOMAIN" ] && validate_domain_syntax "$MINIAPP_DOMAIN"
+[ -n "$MINIAPP_DOMAIN" ] && [ "$MINIAPP_DOMAIN" = "$DOMAIN" ] && die "--domain и --miniapp-domain совпадают — Caddy не сможет завести два разных site-блока на одно имя."
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
@@ -102,48 +114,54 @@ fi
 own_ips="$(hostname -I 2>/dev/null || true)
 ${public_ip}"
 
-# Резолв домена. dig, если есть, — с запросом к 1.1.1.1 напрямую: локальный
-# кеш systemd-resolved умеет держать отрицательный ответ и показывать «нет
-# записи» уже после того, как DNS разъехался. getent — запасной путь, он есть
-# всегда (на чистом Ubuntu 24.04 пакета dnsutils может не быть).
-resolved=""
-if command -v dig >/dev/null 2>&1; then
-  resolved="$(dig +short +time=3 +tries=1 A "$DOMAIN" @1.1.1.1 2>/dev/null | grep -E '^[0-9.]+$' || true)"
-fi
-if [ -z "$resolved" ]; then
-  resolved="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u || true)"
-fi
+# Функция, а не инлайн: с появлением --miniapp-domain проверка нужна дважды,
+# и ошибка должна называть ИМЕННО тот домен, который не резолвится, а не
+# всегда --domain.
+check_domain_dns() {
+  domain="$1"
 
-if [ -z "$resolved" ]; then
-  cat >&2 <<EOF
+  # dig, если есть, — с запросом к 1.1.1.1 напрямую: локальный кеш
+  # systemd-resolved умеет держать отрицательный ответ и показывать «нет
+  # записи» уже после того, как DNS разъехался. getent — запасной путь,
+  # он есть всегда (на чистом Ubuntu 24.04 пакета dnsutils может не быть).
+  resolved=""
+  if command -v dig >/dev/null 2>&1; then
+    resolved="$(dig +short +time=3 +tries=1 A "$domain" @1.1.1.1 2>/dev/null | grep -E '^[0-9.]+$' || true)"
+  fi
+  if [ -z "$resolved" ]; then
+    resolved="$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+  fi
 
-[x] DNS ещё не готов: домен ${DOMAIN} не резолвится в IPv4.
+  if [ -z "$resolved" ]; then
+    cat >&2 <<EOF
+
+[x] DNS ещё не готов: домен ${domain} не резолвится в IPv4.
 
     IP этого сервера: ${public_ip}
 
     Что сделать:
-      • в панели регистратора завести A-запись ${DOMAIN} → ${public_ip}
+      • в панели регистратора завести A-запись ${domain} → ${public_ip}
       • подождать TTL (обычно минуты, иногда до нескольких часов)
       • если запись уже создана, а ответа нет — сбросить локальный кеш:
             sudo resolvectl flush-caches
-      • проверить снаружи: https://dnschecker.org/#A/${DOMAIN}
+      • проверить снаружи: https://dnschecker.org/#A/${domain}
 
     Запусти этот скрипт повторно позже — он ничего не сломал и ничего не создал.
 EOF
-  exit 2
-fi
+    exit 2
+  fi
 
-match=0
-for ip in $resolved; do
-  printf '%s\n' $own_ips | grep -qx "$ip" && match=1
-done
+  match=0
+  for ip in $resolved; do
+    printf '%s\n' $own_ips | grep -qx "$ip" && match=1
+  done
 
-if [ "$match" -eq 0 ]; then
-  cat >&2 <<EOF
+  if [ "$match" -eq 0 ]; then
+    cat >&2 <<EOF
 
 [x] DNS указывает не на этот сервер — сертификат заказывать рано.
 
-    ${DOMAIN} резолвится в: $(printf '%s' "$resolved" | tr '\n' ' ')
+    ${domain} резолвится в: $(printf '%s' "$resolved" | tr '\n' ' ')
     IP этого сервера:       ${public_ip}
 
     Let's Encrypt проверяет владение доменом, обращаясь по этому адресу
@@ -153,10 +171,14 @@ if [ "$match" -eq 0 ]; then
 
     Если запись только что поменяли — подожди TTL и запусти скрипт снова.
 EOF
-  exit 3
-fi
+    exit 3
+  fi
 
-log "DNS готов: ${DOMAIN} → ${public_ip}"
+  log "DNS готов: ${domain} → ${public_ip}"
+}
+
+check_domain_dns "$DOMAIN"
+[ -n "$MINIAPP_DOMAIN" ] && check_domain_dns "$MINIAPP_DOMAIN"
 
 # ── 3. Свободны ли 80 и 443 ─────────────────────────────────────────────────
 # Занятый порт 80 — вторая по частоте причина провала HTTP-01 проверки
@@ -174,6 +196,13 @@ fi
 # Проксируем на api, а НЕ на bot: бот работает по long polling (исходящие
 # соединения) и входящего порта не имеет вовсе — в docker-compose.yml у него
 # нет секции ports, и проксировать там нечего.
+#
+# miniapp — отдельным доменом (не путём вида /miniapp на том же домене):
+# nginx-конфиг miniapp/nginx.conf делает try_files $uri $uri/ /index.html
+# от корня "/", и Vite собирает ссылки на ассеты тоже от корня. Раздать это
+# из-под пути можно, но пришлось бы синхронно менять base в vite.config.ts
+# и location в Caddy — отдельный домен получает готовый miniapp/Dockerfile
+# без единой правки в нём.
 CADDYFILE="${INSTALL_DIR}/Caddyfile"
 {
   echo "# Сгенерирован scripts/setup-domain.sh — правки будут перезаписаны."
@@ -188,6 +217,12 @@ CADDYFILE="${INSTALL_DIR}/Caddyfile"
   echo "${DOMAIN} {"
   echo "    reverse_proxy api:${API_PORT}"
   echo "}"
+  if [ -n "$MINIAPP_DOMAIN" ]; then
+    echo ""
+    echo "${MINIAPP_DOMAIN} {"
+    echo "    reverse_proxy miniapp:80"
+    echo "}"
+  fi
 } > "$CADDYFILE"
 log "Записан ${CADDYFILE}"
 
@@ -232,8 +267,9 @@ services:
       - caddy_config:/config
     depends_on:
       - api
+      - miniapp
     networks:
-      # Та же сеть, что у остальных сервисов: иначе имя api не разрезолвится.
+      # Та же сеть, что у остальных сервисов: иначе имена api/miniapp не разрезолвятся.
       - backend
 
 volumes:
@@ -246,12 +282,16 @@ log "Записан ${OVERRIDE}"
 $SUDO docker compose config -q || die "docker compose config не принял конфигурацию — смотри сообщение выше."
 
 # ── 6. Запуск ───────────────────────────────────────────────────────────────
-log "Поднимаю proxy…"
-$SUDO docker compose up -d --build proxy
+# miniapp — явно в списке, а не понадеявшись, что --build докатится до него
+# через depends_on: у docker compose up на конкретный сервис нет гарантии,
+# что --build распространится на ещё не собранные зависимости.
+log "Поднимаю proxy и miniapp…"
+$SUDO docker compose up -d --build proxy miniapp
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
 echo " Часть Б завершена: ${DOMAIN} → api:${API_PORT}"
+[ -n "$MINIAPP_DOMAIN" ] && echo "                     ${MINIAPP_DOMAIN} → miniapp:80"
 echo "═══════════════════════════════════════════════════════════════════"
 echo ""
 echo "Открыть порты 80 и 443 — это делаешь ты сам, скрипт в файрвол не лезет:"
@@ -268,6 +308,18 @@ echo ""
 echo "  Если /health отвечает 503 — сертификат тут ни при чём: это api говорит,"
 echo "  что не видит базу (см. docs/api.md, раздел GET /health)."
 echo ""
+if [ -n "$MINIAPP_DOMAIN" ]; then
+  echo "HTTPS-ссылка на мини-приложение — вот она:"
+  echo ""
+  echo "      https://${MINIAPP_DOMAIN}/"
+  echo ""
+  echo "  Проверить: curl -I https://${MINIAPP_DOMAIN}/  # ожидается HTTP/2 200"
+  echo "  Именно этот адрес прописывается в настройках мини-приложения у @MasterBot."
+  echo "  Пока miniapp/src/api.ts работает на моках (см. TODO в файле) — экран"
+  echo "  заявок откроется и без живого api, реальные данные появятся, когда"
+  echo "  контракт GET/POST /api/tickets будет реализован и согласован."
+  echo ""
+fi
 echo "Теперь публикацию внутренних портов можно убрать — снаружи всё ходит через proxy:"
 echo "      • db:  в .env поставить DB_PORT=127.0.0.1:5432 и выполнить docker compose up -d"
 echo "             (или удалить блок ports у db в docker-compose.yml совсем)"

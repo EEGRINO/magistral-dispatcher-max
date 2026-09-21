@@ -178,3 +178,9 @@ pgdata/
 
 # Однофайловая сборка miniapp (vite build --mode single)
 dist-single/
+
+# Генерируются scripts/setup-domain.sh на конкретном сервере — домен и TLS
+# там свои, в репозитории это были бы чужие для остальных значения.
+/Caddyfile
+/docker-compose.override.yml
+/docker-compose.override.yml.bak

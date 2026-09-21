@@ -93,6 +93,20 @@ services:
     networks:
       - backend
 
+  # ── Мини-приложение жителя ─────────────────────────────────────────────
+  # Статика (Vite-сборка + nginx), собранная из miniapp/. Пока работает на
+  # моках — живого api ещё не спрашивает (miniapp/src/api.ts, TODO на
+  # GET/POST /api/tickets). depends_on на api нет: страница отдаётся
+  # статикой независимо от того, жив бэкенд или нет.
+  miniapp:
+    build:
+      context: ./miniapp
+    restart: unless-stopped
+    # ports нет: наружу отдаёт proxy (Caddy, см. scripts/setup-domain.sh).
+    # Без него сервис виден только внутри сети compose, по имени miniapp:80.
+    networks:
+      - backend
+
   # ── Бот ─────────────────────────────────────────────────────────────────
   bot:
     build:
