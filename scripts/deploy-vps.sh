@@ -28,10 +28,10 @@
 set -Eeuo pipefail
 
 # ── Параметры по умолчанию ──────────────────────────────────────────────────
-# ВНИМАНИЕ: имя репозитория начинается с дефиса («-MAX-»), поэтому каталог
-# назначения ВСЕГДА задаётся явно. Иначе git создаст каталог «-MAX-», и любая
-# следующая команда вида `cd -MAX-` будет разобрана как набор флагов.
-REPO_URL="https://github.com/EEGRINO/-MAX-.git"
+# Каталог назначения задаётся явно (--dir), а не оставляется на усмотрение
+# git: имя репозитория на GitHub уже менялось один раз, полагаться на то,
+# что git создаст каталог с ожидаемым именем, — источник тихих сюрпризов.
+REPO_URL="https://github.com/EEGRINO/magistral-dispatcher-max.git"
 INSTALL_DIR="/opt/max-dispatcher"
 BRANCH="main"
 WITH_NODE=0
@@ -123,7 +123,7 @@ if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
        cat ~/.ssh/id_ed25519.pub
      Ключ добавить в GitHub: Settings → Deploy keys → Add deploy key (без write access).
      Затем запустить скрипт с SSH-адресом:
-       $0 --repo git@github.com:EEGRINO/-MAX-.git
+       $0 --repo git@github.com:EEGRINO/magistral-dispatcher-max.git
 
   2) Fine-grained PAT (Contents: Read) — одноразово, в URL клонирования.
      Токен попадёт в .git/config на сервере, так что вариант 1 безопаснее.
