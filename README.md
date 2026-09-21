@@ -35,6 +35,8 @@ docker compose up --build
 | Каталог | Что внутри |
 |---|---|
 | `bot/` | диалог с жителем через MAX Bot API (long polling) |
+| `miniapp/` | мини-приложение жителя: React + MAX UI + MAX Bridge, сборка в статику |
+| `prototype/` | кликабельный UI-прототип для показа: один `index.html`, без сборки |
 | `api/` | Fastify: жители, заявки, `/health` |
 | `db/` | миграции PostgreSQL + seed тестовых данных |
 | `config/` | `houses.json`, `rules.yaml`, `norms.yaml` — справочники |

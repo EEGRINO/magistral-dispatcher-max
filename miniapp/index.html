@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Заявки ЖКХ</title>
+
+    <!--
+      MAX Bridge. Отдельный тег с CDN MAX, а не npm-пакет: официального пакета нет,
+      подключение скриптом — единственный документированный способ (docs/max-notes.md).
+      Без defer/async, чтобы window.WebApp существовал до старта бандла.
+    -->
+    <script src="https://st.max.ru/js/max-web-app.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

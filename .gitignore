@@ -175,3 +175,6 @@ desktop.ini
 *.dump
 *.sql.gz
 pgdata/
+
+# Однофайловая сборка miniapp (vite build --mode single)
+dist-single/
