@@ -192,6 +192,109 @@ git pull origin main && docker compose up -d --build
 развёрнутый `.env` сама не попадёт — это осознанно (`.env` никогда не
 затирается автоматически), добавлять руками.
 
+### Домен и TLS: nginx + certbot
+
+Два поддомена — один на `api`, второй на статику мини-аппа. Контейнеры
+80/443 не публикуют вообще: `db` и `api` в `docker-compose.yml` привязаны
+к `127.0.0.1`, наружу отдаёт только системный nginx.
+
+> Было решение поднимать Caddy отдельным сервисом в compose — **отменено**.
+> На сервере уже стоял системный nginx, и Caddy с ним боролся за 80/443:
+> кто стартовал раньше после перезагрузки, тот и держал порт, второй падал
+> с `Address already in use`. Решение задним числом не масштабировалось —
+> проще держать один TLS-терминатор, чем гонять входной трафик через два.
+
+**1. Собрать статику мини-аппа на хост** (Node на хосте не нужен — сборка
+идёт в одноразовом контейнере):
+
+```bash
+sudo mkdir -p /var/www/magistralbot
+docker compose --profile deploy run --rm miniapp-build
+```
+
+Повторять при каждом обновлении `miniapp/` — сервис не запускается сам по
+себе с обычным `docker compose up` (см. комментарий `profiles` в
+`docker-compose.yml`).
+
+**2. Конфиги nginx.** Порт api берётся из `.env`, не хардкодится:
+
+```bash
+API_PORT="$(sed -n 's|^API_PORT=||p' /opt/max-dispatcher/.env | tail -n1)"
+API_PORT="${API_PORT:-3000}"
+```
+
+`/etc/nginx/sites-available/api.ВАШ-ДОМЕН`:
+
+```nginx
+server {
+    listen 80;
+    server_name api.ВАШ-ДОМЕН;
+    location / {
+        proxy_pass http://127.0.0.1:PORT;   # подставить $API_PORT
+    }
+}
+```
+
+`/etc/nginx/sites-available/miniapp.ВАШ-ДОМЕН` — статика плюс проксирование
+api под тем же origin (мини-апп ходит на `/api/...` same-origin, CORS в
+`api` поэтому не заведён — `miniapp/src/api.ts`, TODO на `GET/POST /api/tickets`):
+
+```nginx
+server {
+    listen 80;
+    server_name miniapp.ВАШ-ДОМЕН;
+    root /var/www/magistralbot;
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+    # Завершающий слэш у proxy_pass срезает префикс /api/ — маршруты api
+    # живут без него (docs/api.md): /api/health → http://127.0.0.1:PORT/health
+    location /api/ {
+        proxy_pass http://127.0.0.1:PORT/;   # подставить $API_PORT
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/api.ВАШ-ДОМЕН /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/miniapp.ВАШ-ДОМЕН /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**3. Сертификаты** (certbot сам допишет SSL-директивы и редирект с 80 на 443
+в уже существующие server block — конфиги из шага 2 должны быть на месте
+до этой команды):
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d api.ВАШ-ДОМЕН -d miniapp.ВАШ-ДОМЕН
+sudo certbot renew --dry-run             # проверка автопродления
+systemctl status certbot.timer           # таймер должен быть active
+```
+
+**4. Файрвол** — скрипты его не трогают:
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+```
+
+**5. Проверка:**
+
+```bash
+curl -I https://api.ВАШ-ДОМЕН/health        # HTTP/2 200
+curl -I https://miniapp.ВАШ-ДОМЕН            # HTTP/2 200, отдаёт index.html
+curl -I https://miniapp.ВАШ-ДОМЕН/api/health # HTTP/2 200 — прокси на api живой
+```
+
+`/health` через `/api/` отвечающий 503 — не проблема сертификата, это
+`api` не видит БД (`docs/api.md`, раздел `GET /health`).
+
 ### Имя репозитория менялось — ловушка с именем каталога
 
 Репозиторий переименовывали (`-MAX-` → `magistral-dispatcher-max`).

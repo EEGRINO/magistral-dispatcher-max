@@ -25,7 +25,10 @@ services:
     ports:
       # Наружу — чтобы можно было подключиться psql/DBeaver с хоста.
       # Внутри сети compose порт всегда 5432, независимо от DB_PORT.
-      - "${DB_PORT:-5432}:5432"
+      # Привязка к 127.0.0.1: на VPS порт слушал 0.0.0.0 и был виден с
+      # публичного IP кому угодно. Локально (Docker Desktop на Windows/Mac)
+      # 127.0.0.1 хоста и так единственное, что видит psql/DBeaver.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     healthcheck:
       # pg_isready, а не проверка порта: порт открывается раньше, чем БД
       # реально готова принимать запросы, и api стартовал бы в пустоту.
@@ -71,7 +74,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL не задан — заполни .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
-      - "${API_PORT:-3000}:${API_PORT:-3000}"
+      # 127.0.0.1: на VPS перед api стоит хостовой nginx (доступ по домену,
+      # docs/RUN.md, раздел «Деплой на VPS»), прямой доступ снаружи не нужен
+      # и не должен быть возможен. Локальный curl/Postman продолжает работать —
+      # 127.0.0.1 хоста доступен всегда.
+      - "127.0.0.1:${API_PORT:-3000}:${API_PORT:-3000}"
     depends_on:
       db:
         # Ждём именно healthy, а не просто "контейнер запущен".
@@ -93,19 +100,27 @@ services:
     networks:
       - backend
 
-  # ── Мини-приложение жителя ─────────────────────────────────────────────
-  # Статика (Vite-сборка + nginx), собранная из miniapp/. Пока работает на
-  # моках — живого api ещё не спрашивает (miniapp/src/api.ts, TODO на
-  # GET/POST /api/tickets). depends_on на api нет: страница отдаётся
-  # статикой независимо от того, жив бэкенд или нет.
-  miniapp:
+  # ── Сборка мини-аппа (только деплой) ───────────────────────────────────
+  # Не сервис-демон, а одноразовая сборка: контейнер собирает miniapp/ и
+  # копирует dist/ в примонтированный каталог на хосте, откуда её раздаёт
+  # системный nginx (docs/RUN.md, раздел «Деплой на VPS»). Так — а не
+  # postgres-конвейером nginx-в-контейнере — потому что раздача статики
+  # не требует Node в рантайме, а второй nginx поверх системного добавлял бы
+  # лишний сетевой прыжок ради нуля пользы.
+  #
+  # profiles: без профиля этот сервис поднимался бы вместе со всеми при
+  # обычном `docker compose up` — а каталог ${MINIAPP_DIST_DIR} на машине
+  # разработчика (Windows/Mac, Docker Desktop) чаще всего не существует.
+  # Явный вызов: docker compose --profile deploy run --rm miniapp-build
+  miniapp-build:
     build:
       context: ./miniapp
-    restart: unless-stopped
-    # ports нет: наружу отдаёт proxy (Caddy, см. scripts/setup-domain.sh).
-    # Без него сервис виден только внутри сети compose, по имени miniapp:80.
-    networks:
-      - backend
+      target: build
+    profiles: ["deploy"]
+    restart: "no"
+    command: ["sh", "-c", "rm -rf /out/* && cp -r /app/dist/. /out/"]
+    volumes:
+      - ${MINIAPP_DIST_DIR:-/var/www/magistralbot}:/out
 
   # ── Бот ─────────────────────────────────────────────────────────────────
   bot:

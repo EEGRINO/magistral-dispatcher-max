@@ -209,8 +209,9 @@ fi
 cd "$INSTALL_DIR"
 
 # ── 5. Сертификат Russian Trusted CA (для запросов бота К MAX API) ──────────
-# Не путать с TLS-сертификатом собственного домена — тот выпускает Caddy
-# в части Б. Здесь — цепочка Минцифры, которой подписан platform-api2.max.ru.
+# Не путать с TLS-сертификатом собственного домена — тот выпускает системный
+# nginx + certbot, отдельно от этого скрипта (docs/RUN.md, «Деплой на VPS»).
+# Здесь — цепочка Минцифры, которой подписан platform-api2.max.ru.
 # Она лежит в репозитории и копируется в образ бота (bot/Dockerfile: COPY certs).
 # Хосту она не нужна — скачивать ничего не надо, достаточно убедиться в наличии.
 CA_CHAIN="bot/certs/russian-trusted-ca-chain.pem"
@@ -363,10 +364,8 @@ echo "  ${step}. Проверить живость:"
 echo "         curl http://localhost:3000/health     → {\"status\":\"ok\",\"db\":\"ok\",…}"
 echo "         docker compose logs -f bot            → и написать боту /start в MAX"
 step=$((step + 1))
-echo "  ${step}. Часть Б — домен и TLS:"
-echo "         sudo ./scripts/setup-domain.sh --domain ТВОЙ-ДОМЕН"
-echo "     Её можно запускать уже сейчас: скрипт сам проверит готовность DNS"
-echo "     и аккуратно выйдет, если запись ещё не разъехалась."
+echo "  ${step}. Часть Б — домен и TLS: системный nginx + certbot,"
+echo "     шаги — docs/RUN.md, раздел «Деплой на VPS»."
 echo ""
 
 if [ "$NEED_RELOGIN" -eq 1 ]; then
