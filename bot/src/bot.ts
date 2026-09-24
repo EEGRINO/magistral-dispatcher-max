@@ -1,21 +1,19 @@
 /**
- * Логика бота: цикл long polling + обработка /start и эха.
+ * Логика бота: цикл long polling + вход жителя по контакту.
  *
- * Сегодняшняя задача узкая и намеренно такая: доказать, что бот РЕАЛЬНО отвечает
- * в MAX. FSM-сценарий жителя не трогаем — он согласуется с разработчиком отдельно
- * (см. CLAUDE.md, раздел про FSM и схему БД).
+ * Сценарий согласован 24.09.2026 (docs/Решения_проекта.md):
+ *   - не вошёл → кнопка «Поделиться контактом»;
+ *   - прислал контакт → проверка подписи MAX → привязка к жителю, заведённому УК;
+ *   - вошёл → пока эхо; меню («Чат дома», «Отправить заявку») — следующий шаг.
+ * Отдельного состояния «ждём номер» нет: контакт сам говорит, кто пришёл,
+ * а «вошёл ли» видно по БД. Поэтому перезапуск бота ничего не теряет.
  *
  * Модуль импортируется динамически из index.ts, поэтому падение валидации
  * конфига долетает до обработчика как обычная ошибка, а не как стектрейс.
  */
-import { ApiClient } from './api-client.js';
+import { ApiClient, ApiClientError } from './api-client.js';
+import { findContact, requestContactKeyboard, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
-import {
-  describeContact,
-  findContact,
-  requestContactKeyboard,
-  TEST_CONTACT_COMMAND,
-} from './contact-test.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxUpdate, type SendTarget } from './max-api.js';
 
@@ -59,37 +57,118 @@ function resolveTarget(update: MaxUpdate): SendTarget | null {
   return null;
 }
 
-/**
- * Приветствие с подтверждением, что житель дошёл до БД.
- *
- * Временная проверочная логика для КТ-1: она доказывает, что цепочка
- * MAX → бот → api → БД → ответ работает целиком. Полноценный сценарий
- * диалога появится на Д-7 и это место заменит.
- *
- * Если api недоступен — здороваемся без ID, но НЕ молчим: «бот не отвечает»
- * для жителя гораздо хуже, чем «бот ответил без номера».
- */
-async function buildGreeting(target: SendTarget): Promise<string> {
-  // chat_id диалога — ключ связки с жителем. user_id как запасной вариант:
-  // у события без chat_id других опознавательных знаков не остаётся.
-  const maxChatId = target.chatId ?? target.userId;
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
-  if (maxChatId === undefined) {
-    log.warn('не удалось определить max_chat_id — приветствие без ID');
-    return messages.greeting;
+function askContact(target: SendTarget): Promise<void> {
+  return api.sendMessage(target, messages.askContact, shutdown.signal, requestContactKeyboard);
+}
+
+/**
+ * /start и кнопка «Старт»: вошёл — приветствие, нет — кнопка контакта.
+ *
+ * Если api недоступен — говорим об этом, но НЕ молчим: «бот не отвечает» для
+ * жителя хуже, чем «сервис временно недоступен».
+ */
+async function handleStart(target: SendTarget, userId: number | undefined): Promise<void> {
+  if (userId === undefined) {
+    log.warn('в событии нет user_id — просим контакт');
+    await askContact(target);
+    return;
+  }
+
+  let resident;
+  try {
+    resident = await apiClient.findByMaxUser(userId, shutdown.signal);
+  } catch (error) {
+    log.error('api недоступен при /start', { user_id: userId, error: errorText(error) });
+    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+    return;
+  }
+
+  if (resident) {
+    await api.sendMessage(target, messages.welcomeBack(resident.id), shutdown.signal);
+  } else {
+    await askContact(target);
+  }
+}
+
+type Contact = NonNullable<ReturnType<typeof findContact>>;
+
+async function handleContact(
+  target: SendTarget,
+  senderId: number | undefined,
+  contact: Contact,
+): Promise<void> {
+  const check = verifyContact(contact, senderId, config.token);
+
+  if (!check.ok) {
+    // Номер в лог не пишем ни в каком виде: это персональные данные.
+    log.warn('контакт не принят', { user_id: senderId, reason: check.reason });
+
+    if (check.reason === 'unsupported_phone') {
+      await api.sendMessage(target, messages.unsupportedPhone, shutdown.signal);
+      return;
+    }
+
+    const text = check.reason === 'foreign_contact' ? messages.foreignContact : messages.badContact;
+    await api.sendMessage(target, text, shutdown.signal, requestContactKeyboard);
+    return;
+  }
+
+  // В личном диалоге chat_id есть всегда (docs/max-notes.md, message_created);
+  // проверка — чтобы не записать в БД пустую привязку.
+  if (senderId === undefined || target.chatId === undefined) {
+    log.error('контакт без chat_id или user_id — привязать не к чему', { target });
+    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+    return;
   }
 
   try {
-    const resident = await apiClient.findOrCreateResident(maxChatId, shutdown.signal);
-    log.info('житель сохранён', { resident_id: resident.id, max_chat_id: maxChatId });
-    return messages.greetingWithId(resident.id);
+    const result = await apiClient.linkByPhone(check.phone, target.chatId, senderId, shutdown.signal);
+
+    if (result.kind === 'not_registered') {
+      log.info('номер не найден у УК', { user_id: senderId });
+      await api.sendMessage(target, messages.phoneNotRegistered, shutdown.signal);
+      return;
+    }
+
+    log.info('житель вошёл', { resident_id: result.resident.id, user_id: senderId });
+    await api.sendMessage(target, messages.loggedIn(result.resident.id), shutdown.signal);
   } catch (error) {
-    log.error('api недоступен — приветствие без ID', {
-      max_chat_id: maxChatId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return messages.greeting;
+    if (error instanceof ApiClientError && error.code === 'conflict') {
+      log.warn('аккаунт MAX уже привязан к другой квартире', { user_id: senderId });
+      await api.sendMessage(target, messages.accountLinkedElsewhere, shutdown.signal);
+      return;
+    }
+
+    log.error('api недоступен при входе', { user_id: senderId, error: errorText(error) });
+    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
   }
+}
+
+/** Обычный текст: не вошёл — снова кнопка контакта; вошёл — пока эхо до появления меню. */
+async function handleText(target: SendTarget, userId: number | undefined, text: string): Promise<void> {
+  let resident = null;
+
+  if (userId !== undefined) {
+    try {
+      resident = await apiClient.findByMaxUser(userId, shutdown.signal);
+    } catch (error) {
+      log.error('api недоступен при сообщении', { user_id: userId, error: errorText(error) });
+      await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+      return;
+    }
+  }
+
+  if (!resident) {
+    await askContact(target);
+    return;
+  }
+
+  log.info('эхо', { target, length: text.length });
+  await api.sendMessage(target, text, shutdown.signal);
 }
 
 async function handleUpdate(update: MaxUpdate): Promise<void> {
@@ -106,11 +185,9 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
     // при этом НЕ приходит, поэтому без этой ветки бот молчит на первом экране.
     case 'bot_started': {
       log.info('диалог начат', { target });
-      // Точная форма bot_started в доке описана нечётко (см. docs/max-notes.md).
-      // При LOG_LEVEL=debug видно сырое событие — полезно, если resolveTarget
-      // вдруг перестанет находить адресата после изменений в API.
-      log.debug('bot_started raw', { update });
-      await api.sendMessage(target, await buildGreeting(target), shutdown.signal);
+      // Форма по schema.yaml: user на верхнем уровне (docs/max-notes.md).
+      // payload из диплинка (?start=код_дома) обработаем на шаге «чат дома».
+      await handleStart(target, update.user?.user_id);
       return;
     }
 
@@ -123,13 +200,11 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
         return;
       }
 
-      // ВРЕМЕННО (П4): контакт приходит сообщением без текста — ловим его до
-      // проверки текста, иначе ответом был бы «понимаю только текст».
+      // Контакт приходит сообщением без текста — ловим его до проверки текста,
+      // иначе ответом было бы «понимаю только текст».
       const contact = findContact(update.message);
       if (contact) {
-        // Номер в лог не пишем: это персональные данные.
-        log.info('получен контакт (тест П4)', { target, has_hash: typeof contact.hash === 'string' });
-        await api.sendMessage(target, describeContact(contact, sender?.user_id), shutdown.signal);
+        await handleContact(target, sender?.user_id, contact);
         return;
       }
 
@@ -140,26 +215,14 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
         return;
       }
 
-      if (text === TEST_CONTACT_COMMAND) {
-        log.info('тест кнопки контакта', { target });
-        await api.sendMessage(
-          target,
-          'Проверка кнопки контакта: нажмите её. Бот покажет, что пришло.',
-          shutdown.signal,
-          requestContactKeyboard,
-        );
-        return;
-      }
-
       // startsWith, а не ===: MAX умеет deep-link вида "/start ref=qr_подъезд3".
       if (text.startsWith('/start')) {
         log.info('команда /start', { target });
-        await api.sendMessage(target, await buildGreeting(target), shutdown.signal);
+        await handleStart(target, sender?.user_id);
         return;
       }
 
-      log.info('эхо', { target, length: text.length });
-      await api.sendMessage(target, text, shutdown.signal);
+      await handleText(target, sender?.user_id, text);
       return;
     }
 

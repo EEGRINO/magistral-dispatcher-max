@@ -42,32 +42,35 @@ export const HealthResponse = Type.Object({
 
 // ── Житель ─────────────────────────────────────────────────────────────
 
+/** Телефон в нормализованном виде — ровно так он хранится в БД. */
+const Phone = Type.String({ pattern: '^\\+7[0-9]{10}$', description: '+7 и 10 цифр' });
+
+/**
+ * Номер телефона наружу не отдаётся: это персональные данные, а клиентам api
+ * (бот, мини-апп) он не нужен — житель и так знает свой номер.
+ */
 export const Resident = Type.Object({
   id: Id,
-  max_chat_id: Type.Integer(),
   house_id: Nullable(Id),
+  max_chat_id: Nullable(Type.Integer()),
+  max_user_id: Nullable(Type.Integer()),
   created_at: Type.String({ format: 'date-time' }),
 });
 
-export const FindOrCreateResidentBody = Type.Object(
+export const LinkByPhoneBody = Type.Object(
   {
-    max_chat_id: Type.Integer({
-      minimum: 1,
-      description: 'chat_id диалога с ботом в MAX',
-    }),
-    house_id: Type.Optional(
-      Nullable(Type.Integer({ minimum: 1, description: 'Дом жителя, если уже известен' })),
-    ),
+    phone: Phone,
+    max_chat_id: Type.Integer({ minimum: 1, description: 'chat_id диалога с ботом в MAX' }),
+    max_user_id: Type.Integer({ minimum: 1, description: 'id пользователя MAX' }),
   },
   // Лишние поля — почти всегда опечатка на стороне клиента, и молча их
   // проглатывать хуже, чем сразу сказать об этом.
   { additionalProperties: false },
 );
 
-export const FindOrCreateResidentResponse = Type.Object({
-  resident: Resident,
-  created: Type.Boolean({ description: 'true — житель создан этим запросом, false — уже был' }),
-});
+export const MaxUserIdParams = Type.Object({ max_user_id: Id });
+
+export const ResidentResponse = Type.Object({ resident: Resident });
 
 // ── Заявка ─────────────────────────────────────────────────────────────
 
@@ -116,8 +119,9 @@ export type TicketDto = Static<typeof Ticket>;
 
 export interface ResidentRow {
   id: number;
-  max_chat_id: number;
   house_id: number | null;
+  max_chat_id: number | null;
+  max_user_id: number | null;
   created_at: Date;
 }
 
@@ -136,8 +140,9 @@ export interface TicketRow {
 
 export const toResidentDto = (row: ResidentRow): ResidentDto => ({
   id: row.id,
-  max_chat_id: row.max_chat_id,
   house_id: row.house_id,
+  max_chat_id: row.max_chat_id,
+  max_user_id: row.max_user_id,
   created_at: row.created_at.toISOString(),
 });
 

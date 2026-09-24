@@ -21,6 +21,13 @@ export class ApiError extends Error {
 
 export const notFound = (message: string): ApiError => new ApiError(404, 'not_found', message);
 
+/**
+ * Отдельный код, а не not_found: на него бот отвечает жителю «номер не привязан
+ * к квартире, обратитесь в УК», а на остальные 404 — нет.
+ */
+export const phoneNotRegistered = (): ApiError =>
+  new ApiError(404, 'phone_not_registered', 'Номер не привязан ни к одной квартире');
+
 export const invalidReference = (message: string): ApiError =>
   new ApiError(400, 'invalid_reference', message);
 
