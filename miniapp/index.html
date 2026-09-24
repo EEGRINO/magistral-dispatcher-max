@@ -4,16 +4,76 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Заявки ЖКХ</title>
+  </head>
+  <body>
+    <!-- Заглушка до старта приложения: React заменит её своим содержимым. -->
+    <div id="root">
+      <div id="boot" style="font: 15px/1.5 system-ui, sans-serif; padding: 24px; color: #888">
+        Загрузка…
+      </div>
+    </div>
+
+    <!--
+      Страховка от «белого экрана». Без неё любая ошибка при запуске (браузер не
+      понял синтаксис бандла, скрипт не загрузился, React упал при отрисовке)
+      оставляет пустую страницу, и на телефоне причину не узнать — консоли нет.
+      Обычный скрипт, не модуль и без новых конструкций языка: он должен
+      отработать в любом браузере, иначе от него нет толку.
+    -->
+    <script>
+      (function () {
+        var bridge = 'грузится';
+        var errors = [];
+        window.__bootBridge = function (state) { bridge = state; };
+
+        function started() {
+          var root = document.getElementById('root');
+          return !document.getElementById('boot') && root && root.childElementCount > 0;
+        }
+
+        function report(title) {
+          if (started()) return;
+          var box = document.getElementById('boot-report') || document.createElement('div');
+          box.id = 'boot-report';
+          box.setAttribute('style', 'font: 14px/1.5 system-ui, sans-serif; padding: 24px; color: #c00; white-space: pre-wrap; word-break: break-word');
+          box.textContent = title + '\n\n' +
+            (errors.length ? 'Ошибки:\n' + errors.join('\n') + '\n\n' : '') +
+            'MAX Bridge: ' + bridge + '\n' +
+            'Браузер: ' + navigator.userAgent;
+          var boot = document.getElementById('boot');
+          if (boot) boot.style.display = 'none';
+          if (!box.parentNode) document.body.appendChild(box);
+        }
+
+        // Ошибка могла случиться и после отрисовки — тогда React снимает всё
+        // приложение. Проверяем через тик, пусто ли стало на странице.
+        function onError(message) {
+          errors.push(message);
+          setTimeout(function () { report('Приложение не запустилось'); }, 0);
+        }
+
+        window.addEventListener('error', function (event) {
+          onError(event.message + (event.filename ? ' (' + event.filename + ':' + event.lineno + ')' : ''));
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          onError('Promise: ' + (event.reason && event.reason.message ? event.reason.message : String(event.reason)));
+        });
+        setTimeout(function () { report('Приложение не запустилось за 10 секунд'); }, 10000);
+      })();
+    </script>
 
     <!--
       MAX Bridge. Отдельный тег с CDN MAX, а не npm-пакет: официального пакета нет,
       подключение скриптом — единственный документированный способ (docs/max-notes.md).
-      Без defer/async, чтобы window.WebApp существовал до старта бандла.
+      Без defer/async, чтобы window.WebApp существовал до старта бандла: модуль ниже
+      выполняется после всех обычных скриптов страницы. Стоит в body, а не в head,
+      чтобы «Загрузка…» была видна, даже если CDN MAX отвечает долго.
     -->
-    <script src="https://st.max.ru/js/max-web-app.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
+    <script
+      src="https://st.max.ru/js/max-web-app.js"
+      onload="__bootBridge('загружен')"
+      onerror="__bootBridge('не загрузился')"
+    ></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
