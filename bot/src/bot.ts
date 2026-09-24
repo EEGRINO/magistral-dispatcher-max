@@ -1,21 +1,32 @@
 /**
- * Логика бота: цикл long polling + вход жителя по контакту.
+ * Логика бота: цикл long polling и диалог с жителем.
  *
  * Сценарий согласован 24.09.2026 (docs/Решения_проекта.md):
- *   - не вошёл → кнопка «Поделиться контактом»;
- *   - прислал контакт → проверка подписи MAX → привязка к жителю, заведённому УК;
- *   - вошёл → пока эхо; меню («Чат дома», «Отправить заявку») — следующий шаг.
- * Отдельного состояния «ждём номер» нет: контакт сам говорит, кто пришёл,
- * а «вошёл ли» видно по БД. Поэтому перезапуск бота ничего не теряет.
+ *   - не вошёл → кнопка «Поделиться контактом» → проверка подписи MAX →
+ *     привязка к жителю, заранее заведённому УК;
+ *   - вошёл → меню: «Чат дома» и «Отправить заявку ЖКХ» (мини-приложение);
+ *   - «Чат дома»: дом по данным УК → по QR (?start=invite_code) → по адресу,
+ *     введённому вручную; ответ — адрес и ссылка на чат дома.
+ *
+ * Состояний в БД нет. Вошёл ли человек — видно по БД; «ждём адрес» и «код
+ * дома из QR до входа» — в памяти (dialog-state.ts), перезапуск их стирает.
  *
  * Модуль импортируется динамически из index.ts, поэтому падение валидации
  * конфига долетает до обработчика как обычная ошибка, а не как стектрейс.
  */
-import { ApiClient, ApiClientError } from './api-client.js';
-import { findContact, requestContactKeyboard, verifyContact } from './auth.js';
+import { ApiClient, ApiClientError, type House, type Resident } from './api-client.js';
+import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
+import { awaitingAddress, pendingInvite } from './dialog-state.js';
+import {
+  Action,
+  cancelAddressKeyboard,
+  houseChatKeyboard,
+  menuKeyboard,
+  requestContactKeyboard,
+} from './keyboards.js';
 import { log } from './logger.js';
-import { MaxApi, MaxApiError, type MaxUpdate, type SendTarget } from './max-api.js';
+import { MaxApi, MaxApiError, type MaxAttachment, type MaxUpdate, type SendTarget } from './max-api.js';
 
 const api = new MaxApi();
 const apiClient = new ApiClient();
@@ -39,68 +50,250 @@ function isAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
- * Куда отправлять ответ.
- *
- * У message_created адресат лежит в message.recipient.chat_id. У bot_started
- * форма в доке описана нечётко, поэтому перебираем известные варианты
- * сверху вниз. chat_id приоритетнее user_id: он работает и в личке, и в группе.
+ * Куда отправлять ответ. chat_id приоритетнее user_id: он работает и в личке,
+ * и в группе. У нажатия кнопки адресат — чат сообщения с клавиатурой; если то
+ * сообщение уже удалено, остаётся только нажавший пользователь.
  */
 function resolveTarget(update: MaxUpdate): SendTarget | null {
   const chatId = update.message?.recipient?.chat_id ?? update.chat_id;
   if (typeof chatId === 'number') return { chatId };
 
   const userId =
-    update.message?.sender?.user_id ?? update.user?.user_id ?? update.user_id;
+    update.message?.sender?.user_id ??
+    update.user?.user_id ??
+    update.callback?.user?.user_id ??
+    update.user_id;
   if (typeof userId === 'number') return { userId };
 
   return null;
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+// ── username бота для кнопки open_app ──────────────────────────────────────
+
+let botUsername: string | null = null;
+let usernameCheckedAt = 0;
+
+/**
+ * Лениво и не чаще раза в минуту: если MAX не ответил на старте, кнопка
+ * «Отправить заявку ЖКХ» появится, как только GET /me пройдёт, — без рестарта.
+ */
+async function getBotUsername(): Promise<string | null> {
+  if (botUsername || Date.now() - usernameCheckedAt < 60_000) return botUsername;
+  usernameCheckedAt = Date.now();
+
+  try {
+    const me = await api.getMe(shutdown.signal);
+    botUsername = me.username ?? null;
+    if (botUsername) {
+      log.info('username бота получен', { username: botUsername });
+    } else {
+      log.warn('у бота нет username — кнопка «Отправить заявку ЖКХ» не показывается');
+    }
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    log.warn('GET /me не удался — меню пока без кнопки заявки', { error: errorText(error) });
+  }
+
+  return botUsername;
+}
+
+// ── отправка ──────────────────────────────────────────────────────────────
+
+function send(target: SendTarget, text: string, attachments?: MaxAttachment[]): Promise<void> {
+  return api.sendMessage(target, text, shutdown.signal, attachments);
 }
 
 function askContact(target: SendTarget): Promise<void> {
-  return api.sendMessage(target, messages.askContact, shutdown.signal, requestContactKeyboard);
+  return send(target, messages.askContact, requestContactKeyboard);
+}
+
+async function sendMenu(target: SendTarget, lead?: string): Promise<void> {
+  const text = lead ? `${lead}\n${messages.menu}` : messages.menu;
+  await send(target, text, menuKeyboard(await getBotUsername()));
+}
+
+/** Адрес дома + кнопки «Перейти в чат дома» и «Отправить заявку ЖКХ» — одним сообщением. */
+async function sendHouseChat(target: SendTarget, house: House, lead?: string): Promise<void> {
+  const body = house.chat_link ? messages.houseChat(house.address) : messages.houseChatMissing(house.address);
+  const text = lead ? `${lead}\n${body}` : body;
+  await send(target, text, houseChatKeyboard(house.chat_link, await getBotUsername()));
+}
+
+/** api не ответил: говорим об этом, а не молчим — «бот не отвечает» для жителя хуже. */
+async function serviceUnavailable(
+  target: SendTarget,
+  where: string,
+  meta: Record<string, unknown>,
+  error: unknown,
+): Promise<void> {
+  if (isAbort(error)) throw error;
+  log.error(`api недоступен ${where}`, { ...meta, error: errorText(error) });
+  await send(target, messages.serviceUnavailable);
+}
+
+/** Житель по user_id; undefined — api недоступен (ответ жителю уже отправлен). */
+async function findResident(
+  target: SendTarget,
+  userId: number,
+  where: string,
+): Promise<Resident | null | undefined> {
+  try {
+    return await apiClient.findByMaxUser(userId, shutdown.signal);
+  } catch (error) {
+    await serviceUnavailable(target, where, { user_id: userId }, error);
+    return undefined;
+  }
+}
+
+/** Меню вошедшему, кнопка контакта — не вошедшему. */
+async function showMenu(target: SendTarget, userId: number | undefined): Promise<void> {
+  if (userId === undefined) {
+    await askContact(target);
+    return;
+  }
+  const resident = await findResident(target, userId, 'при показе меню');
+  if (resident === undefined) return;
+  await (resident ? sendMenu(target) : askContact(target));
+}
+
+// ── дом жителя ────────────────────────────────────────────────────────────
+
+/**
+ * Код дома из QR. Дом жителя заполняется, только если он неизвестен: данные УК
+ * главнее. При расхождении api вернёт дом по данным УК и mismatch=true — жителю
+ * об этом не говорим, только пишем в лог (решение 24.09.2026).
+ */
+async function applyInvite(target: SendTarget, resident: Resident, code: string, lead: string): Promise<void> {
+  try {
+    const result = await apiClient.assignHouseByInvite(resident.id, code, shutdown.signal);
+
+    if (result.kind === 'unknown_code') {
+      log.warn('код дома из QR не найден', { resident_id: resident.id });
+      await sendMenu(target, `${lead}\n${messages.inviteUnknown}`);
+      return;
+    }
+
+    if (result.mismatch) {
+      log.warn('QR другого дома — показан дом по данным УК', { resident_id: resident.id, house_id: result.house.id });
+    }
+    await sendHouseChat(target, result.house, lead);
+  } catch (error) {
+    await serviceUnavailable(target, 'при коде дома из QR', { resident_id: resident.id }, error);
+  }
+}
+
+/** Кнопка «Чат дома»: дом известен — ссылка; нет — просим адрес. */
+async function handleHouseChat(target: SendTarget, userId: number | undefined): Promise<void> {
+  if (userId === undefined) {
+    await askContact(target);
+    return;
+  }
+
+  const resident = await findResident(target, userId, 'при «Чат дома»');
+  if (resident === undefined) return;
+  if (resident === null) {
+    await askContact(target);
+    return;
+  }
+
+  let house: House | null;
+  try {
+    house = await apiClient.getHouse(resident.id, shutdown.signal);
+  } catch (error) {
+    await serviceUnavailable(target, 'при «Чат дома»', { resident_id: resident.id }, error);
+    return;
+  }
+
+  if (house) {
+    awaitingAddress.delete(userId);
+    await sendHouseChat(target, house);
+    return;
+  }
+
+  awaitingAddress.set(userId, resident.id);
+  log.info('ждём адрес дома', { resident_id: resident.id });
+  await send(target, messages.askAddress, cancelAddressKeyboard);
+}
+
+/** Текст в состоянии «ждём адрес». Сам адрес в лог не пишем — это адрес жительства. */
+async function handleAddress(target: SendTarget, userId: number, resident: Resident, text: string): Promise<void> {
+  try {
+    const result = await apiClient.assignHouseByAddress(resident.id, text, shutdown.signal);
+
+    if (result.kind === 'ok') {
+      awaitingAddress.delete(userId);
+      log.info('дом найден по адресу', { resident_id: resident.id, house_id: result.house.id });
+      await sendHouseChat(target, result.house);
+      return;
+    }
+
+    // Неверный адрес — остаёмся в ожидании; таймаут отсчитывается заново.
+    awaitingAddress.set(userId, resident.id);
+    log.info('адрес не принят', { resident_id: resident.id, reason: result.kind });
+    const reply = result.kind === 'not_found' ? messages.addressNotFound : messages.addressUnrecognized;
+    await send(target, reply, cancelAddressKeyboard);
+  } catch (error) {
+    await serviceUnavailable(target, 'при вводе адреса', { resident_id: resident.id }, error);
+  }
+}
+
+// ── вход ──────────────────────────────────────────────────────────────────
+
+/** Параметр диплинка ?start=… — код дома. Формат — как у invite_code в api. */
+function readInvite(payload: unknown): string | undefined {
+  if (typeof payload !== 'string') return undefined;
+  const code = payload.trim();
+  if (!code) return undefined;
+  if (code.length > 128 || !/^[A-Za-z0-9_-]+$/.test(code)) {
+    log.warn('параметр диплинка не похож на код дома — игнорируем', { length: code.length });
+    return undefined;
+  }
+  return code;
 }
 
 /**
- * /start и кнопка «Старт»: вошёл — приветствие, нет — кнопка контакта.
- *
- * Если api недоступен — говорим об этом, но НЕ молчим: «бот не отвечает» для
- * жителя хуже, чем «сервис временно недоступен».
+ * /start и кнопка «Старт» (в т.ч. по QR с кодом дома). Вошёл — приветствие и
+ * меню (или сразу чат дома по QR); не вошёл — кнопка контакта, код из QR
+ * запоминается до завершения входа.
  */
-async function handleStart(target: SendTarget, userId: number | undefined): Promise<void> {
+async function handleStart(target: SendTarget, userId: number | undefined, invite?: string): Promise<void> {
   if (userId === undefined) {
     log.warn('в событии нет user_id — просим контакт');
     await askContact(target);
     return;
   }
 
-  let resident;
-  try {
-    resident = await apiClient.findByMaxUser(userId, shutdown.signal);
-  } catch (error) {
-    log.error('api недоступен при /start', { user_id: userId, error: errorText(error) });
-    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+  // /start — один из путей выхода из ожидания адреса.
+  awaitingAddress.delete(userId);
+
+  const resident = await findResident(target, userId, 'при /start');
+  if (resident === undefined) return;
+
+  if (resident === null) {
+    if (invite) {
+      pendingInvite.set(userId, invite);
+      log.info('код дома из QR запомнен до входа', { user_id: userId });
+    }
+    await askContact(target);
     return;
   }
 
-  if (resident) {
-    await api.sendMessage(target, messages.welcomeBack(resident.id), shutdown.signal);
-  } else {
-    await askContact(target);
+  if (invite) {
+    await applyInvite(target, resident, invite, messages.welcomeBack(resident.id));
+    return;
   }
+
+  await sendMenu(target, messages.welcomeBack(resident.id));
 }
 
 type Contact = NonNullable<ReturnType<typeof findContact>>;
 
-async function handleContact(
-  target: SendTarget,
-  senderId: number | undefined,
-  contact: Contact,
-): Promise<void> {
+async function handleContact(target: SendTarget, senderId: number | undefined, contact: Contact): Promise<void> {
   const check = verifyContact(contact, senderId, config.token);
 
   if (!check.ok) {
@@ -108,12 +301,12 @@ async function handleContact(
     log.warn('контакт не принят', { user_id: senderId, reason: check.reason });
 
     if (check.reason === 'unsupported_phone') {
-      await api.sendMessage(target, messages.unsupportedPhone, shutdown.signal);
+      await send(target, messages.unsupportedPhone);
       return;
     }
 
     const text = check.reason === 'foreign_contact' ? messages.foreignContact : messages.badContact;
-    await api.sendMessage(target, text, shutdown.signal, requestContactKeyboard);
+    await send(target, text, requestContactKeyboard);
     return;
   }
 
@@ -121,54 +314,100 @@ async function handleContact(
   // проверка — чтобы не записать в БД пустую привязку.
   if (senderId === undefined || target.chatId === undefined) {
     log.error('контакт без chat_id или user_id — привязать не к чему', { target });
-    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+    await send(target, messages.serviceUnavailable);
     return;
   }
 
+  let resident: Resident;
   try {
     const result = await apiClient.linkByPhone(check.phone, target.chatId, senderId, shutdown.signal);
 
     if (result.kind === 'not_registered') {
       log.info('номер не найден у УК', { user_id: senderId });
-      await api.sendMessage(target, messages.phoneNotRegistered, shutdown.signal);
+      await send(target, messages.phoneNotRegistered);
       return;
     }
 
-    log.info('житель вошёл', { resident_id: result.resident.id, user_id: senderId });
-    await api.sendMessage(target, messages.loggedIn(result.resident.id), shutdown.signal);
+    resident = result.resident;
   } catch (error) {
     if (error instanceof ApiClientError && error.code === 'conflict') {
       log.warn('аккаунт MAX уже привязан к другой квартире', { user_id: senderId });
-      await api.sendMessage(target, messages.accountLinkedElsewhere, shutdown.signal);
+      await send(target, messages.accountLinkedElsewhere);
       return;
     }
-
-    log.error('api недоступен при входе', { user_id: senderId, error: errorText(error) });
-    await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
+    await serviceUnavailable(target, 'при входе', { user_id: senderId }, error);
+    return;
   }
+
+  log.info('житель вошёл', { resident_id: resident.id, user_id: senderId });
+
+  // Пришёл по QR до входа — сразу показываем чат дома.
+  const invite = pendingInvite.get(senderId);
+  if (invite) {
+    pendingInvite.delete(senderId);
+    await applyInvite(target, resident, invite, messages.loggedIn(resident.id));
+    return;
+  }
+
+  await sendMenu(target, messages.loggedIn(resident.id));
 }
 
-/** Обычный текст: не вошёл — снова кнопка контакта; вошёл — пока эхо до появления меню. */
+/** Обычный текст: ждём адрес — это адрес; иначе меню (или кнопка контакта, если не вошёл). */
 async function handleText(target: SendTarget, userId: number | undefined, text: string): Promise<void> {
-  let resident = null;
-
-  if (userId !== undefined) {
-    try {
-      resident = await apiClient.findByMaxUser(userId, shutdown.signal);
-    } catch (error) {
-      log.error('api недоступен при сообщении', { user_id: userId, error: errorText(error) });
-      await api.sendMessage(target, messages.serviceUnavailable, shutdown.signal);
-      return;
-    }
+  if (userId === undefined || awaitingAddress.get(userId) === undefined) {
+    await showMenu(target, userId);
+    return;
   }
 
-  if (!resident) {
+  const resident = await findResident(target, userId, 'при вводе адреса');
+  if (resident === undefined) return;
+  if (resident === null) {
+    awaitingAddress.delete(userId);
     await askContact(target);
     return;
   }
 
-  log.info('эхо', { target, length: text.length });
-  await api.sendMessage(target, text, shutdown.signal);
+  await handleAddress(target, userId, resident, text);
+}
+
+/** Нажатие inline-кнопки. Сначала отвечаем на нажатие, потом делаем дело. */
+async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<void> {
+  const callback = update.callback;
+  if (!callback) return;
+
+  const userId = callback.user?.user_id;
+
+  const answer = async (notification: string): Promise<void> => {
+    try {
+      await api.answerCallback(callback.callback_id, notification, shutdown.signal);
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      // Без ответа на нажатие дело всё равно делаем — это важнее индикатора.
+      log.warn('ответ на нажатие не отправлен', { error: errorText(error) });
+    }
+  };
+
+  switch (callback.payload) {
+    case Action.houseChat: {
+      await answer('Чат дома');
+      await handleHouseChat(target, userId);
+      return;
+    }
+
+    case Action.cancelAddress: {
+      if (userId !== undefined) awaitingAddress.delete(userId);
+      await answer('Отменено');
+      await sendMenu(target, messages.addressCancelled);
+      return;
+    }
+
+    default: {
+      // Кнопка из старого сообщения, чей payload мы больше не знаем.
+      log.debug('неизвестная кнопка', { payload: callback.payload });
+      await answer('Кнопка устарела');
+      await showMenu(target, userId);
+    }
+  }
 }
 
 async function handleUpdate(update: MaxUpdate): Promise<void> {
@@ -181,20 +420,25 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
   }
 
   switch (update.update_type) {
-    // Нажата кнопка «Старт» в новом диалоге. Отдельное событие: message_created
-    // при этом НЕ приходит, поэтому без этой ветки бот молчит на первом экране.
+    // Нажата кнопка «Старт» — в новом диалоге или по диплинку ?start=код_дома.
+    // message_created при этом НЕ приходит, поэтому без этой ветки бот молчит.
     case 'bot_started': {
-      log.info('диалог начат', { target });
-      // Форма по schema.yaml: user на верхнем уровне (docs/max-notes.md).
-      // payload из диплинка (?start=код_дома) обработаем на шаге «чат дома».
-      await handleStart(target, update.user?.user_id);
+      const invite = readInvite(update.payload);
+      log.info('диалог начат', { target, by_qr: invite !== undefined });
+      await handleStart(target, update.user?.user_id, invite);
+      return;
+    }
+
+    case 'message_callback': {
+      log.info('нажата кнопка', { target, payload: update.callback?.payload });
+      await handleCallback(target, update);
       return;
     }
 
     case 'message_created': {
       const sender = update.message?.sender;
 
-      // Иначе два бота в одном чате уйдут в бесконечное эхо друг с другом.
+      // Иначе два бота в одном чате уйдут в бесконечный диалог друг с другом.
       if (sender?.is_bot) {
         log.debug('сообщение от бота — игнорируем', { user_id: sender.user_id });
         return;
@@ -211,11 +455,10 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
       const text = update.message?.body?.text?.trim();
 
       if (!text) {
-        await api.sendMessage(target, messages.nonText, shutdown.signal);
+        await send(target, messages.nonText);
         return;
       }
 
-      // startsWith, а не ===: MAX умеет deep-link вида "/start ref=qr_подъезд3".
       if (text.startsWith('/start')) {
         log.info('команда /start', { target });
         await handleStart(target, sender?.user_id);
@@ -313,6 +556,10 @@ export async function run(): Promise<void> {
     // Длину токена логируем, сам токен — никогда.
     token_length: config.token.length,
   });
+
+  // Заранее, чтобы первое же меню пришло с кнопкой заявки и проблема с
+  // username была видна в логе сразу, а не при первом нажатии.
+  await getBotUsername();
 
   await pollLoop();
   log.info('бот остановлен');

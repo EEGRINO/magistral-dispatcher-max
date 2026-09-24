@@ -72,6 +72,40 @@ export const MaxUserIdParams = Type.Object({ max_user_id: Id });
 
 export const ResidentResponse = Type.Object({ resident: Resident });
 
+// ── Дом жителя ─────────────────────────────────────────────────────────
+
+/** Только то, что нужно жителю: адрес для подтверждения и ссылка на чат. */
+export const House = Type.Object({
+  id: Id,
+  address: Type.String(),
+  chat_link: Nullable(Type.String()),
+});
+
+export const ResidentIdParams = Type.Object({ id: Id });
+
+/** house: null — дом жителя ещё неизвестен (УК его не указала, житель не вводил). */
+export const HouseResponse = Type.Object({ house: Nullable(House) });
+
+export const HouseByInviteBody = Type.Object(
+  {
+    // Формат кода не фиксируем жёстко: сейчас это 12 hex-знаков, но УК может
+    // завести свой. Ограничение — как у payload диплинка MAX (docs/max-notes.md).
+    invite_code: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
+  },
+  { additionalProperties: false },
+);
+
+export const HouseByInviteResponse = Type.Object({
+  house: House,
+  /** true — у жителя по данным УК другой дом; показан он, а не дом из QR. */
+  mismatch: Type.Boolean(),
+});
+
+export const HouseByAddressBody = Type.Object(
+  { address: Type.String({ minLength: 1, maxLength: 200, description: 'как ввёл житель' }) },
+  { additionalProperties: false },
+);
+
 // ── Заявка ─────────────────────────────────────────────────────────────
 
 export const TicketStatus = Type.Union([
@@ -109,6 +143,7 @@ export const TicketIdParams = Type.Object({ id: Id });
 // ── Типы ───────────────────────────────────────────────────────────────
 
 export type ResidentDto = Static<typeof Resident>;
+export type HouseDto = Static<typeof House>;
 export type TicketDto = Static<typeof Ticket>;
 
 // ── Строки БД → DTO ────────────────────────────────────────────────────

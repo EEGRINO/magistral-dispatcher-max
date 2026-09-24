@@ -11,14 +11,7 @@
  * hash — 64 символа, то есть hex.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { MaxAttachment, MaxMessage } from './max-api.js';
-
-export const requestContactKeyboard: MaxAttachment[] = [
-  {
-    type: 'inline_keyboard',
-    payload: { buttons: [[{ type: 'request_contact', text: 'Поделиться контактом' }]] },
-  },
-];
+import type { MaxMessage } from './max-api.js';
 
 interface ContactPayload {
   vcf_info?: unknown;

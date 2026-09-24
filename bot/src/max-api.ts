@@ -43,9 +43,16 @@ export interface MaxMessage {
   timestamp?: number;
 }
 
+/** Нажатие inline-кнопки (событие message_callback, docs/max-notes.md). */
+export interface MaxCallback {
+  callback_id: string;
+  payload?: string;
+  user: MaxUser;
+  timestamp: number;
+}
+
 /**
- * Поля адресата у bot_started в доке описаны нечётко, поэтому допускаем
- * несколько вариантов и разбираем их в resolveTarget(). Индексная сигнатура
+ * Форма событий — по schema.yaml (docs/max-notes.md). Индексная сигнатура
  * нужна, чтобы неизвестные типы событий не ломали разбор.
  */
 export interface MaxUpdate {
@@ -55,7 +62,10 @@ export interface MaxUpdate {
   user?: MaxUser;
   user_id?: number;
   chat_id?: number;
+  /** bot_started: параметр диплинка ?start=… */
   payload?: string;
+  /** message_callback: какая кнопка нажата и кем. */
+  callback?: MaxCallback;
   [key: string]: unknown;
 }
 
@@ -152,6 +162,19 @@ export class MaxApi {
     );
   }
 
+  /** Сам бот. Отсюда берётся username для кнопки open_app — хардкодить его не нужно. */
+  async getMe(signal?: AbortSignal): Promise<MaxUser> {
+    return this.request<MaxUser>('GET', '/me', {}, undefined, signal);
+  }
+
+  /**
+   * Ответ на нажатие кнопки. Что будет без ответа, дока не говорит, поэтому
+   * отвечаем всегда: короткое одноразовое уведомление (поле notification).
+   */
+  async answerCallback(callbackId: string, notification: string, signal?: AbortSignal): Promise<void> {
+    await this.request<unknown>('POST', '/answers', { callback_id: callbackId }, { notification }, signal);
+  }
+
   /**
    * Адресат задаётся query-параметром, текст — телом запроса.
    * Клавиатура — это тоже вложение (type: "inline_keyboard"), отдельного поля нет.
@@ -168,7 +191,7 @@ export class MaxApi {
       'POST',
       '/messages',
       { chat_id: target.chatId, user_id: target.userId },
-      { text: trimmed, notify: true, ...(attachments ? { attachments } : {}) },
+      { text: trimmed, notify: true, ...(attachments?.length ? { attachments } : {}) },
       signal,
     );
   }

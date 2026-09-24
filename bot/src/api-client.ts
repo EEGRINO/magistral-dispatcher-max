@@ -27,10 +27,25 @@ export class ApiClientError extends Error {
   }
 }
 
+export interface House {
+  id: number;
+  address: string;
+  chat_link: string | null;
+}
+
 /** Итог привязки: либо житель, либо «такого номера у УК нет». */
 export type LinkResult =
   | { kind: 'linked'; resident: Resident }
   | { kind: 'not_registered' };
+
+export type InviteResult =
+  | { kind: 'ok'; house: House; mismatch: boolean }
+  | { kind: 'unknown_code' };
+
+export type AddressResult =
+  | { kind: 'ok'; house: House }
+  | { kind: 'not_found' }
+  | { kind: 'unrecognized' };
 
 export class ApiClient {
   constructor(
@@ -121,6 +136,58 @@ export class ApiClient {
     } catch (error) {
       if (error instanceof ApiClientError && error.code === 'phone_not_registered') {
         return { kind: 'not_registered' };
+      }
+      throw error;
+    }
+  }
+
+  private static readHouse(parsed: unknown, path: string): House {
+    const house = (parsed as { house?: House }).house;
+    if (typeof house?.id !== 'number') {
+      throw new ApiClientError(200, null, `В ответе ${path} нет house.id`);
+    }
+    return house;
+  }
+
+  /** Дом жителя; null — дом ещё неизвестен. */
+  async getHouse(residentId: number, signal?: AbortSignal): Promise<House | null> {
+    const path = `/residents/${residentId}/house`;
+    const parsed = await this.request('GET', path, undefined, signal);
+    return (parsed as { house?: House | null }).house === null ? null : ApiClient.readHouse(parsed, path);
+  }
+
+  /** Дом по коду из QR; дом жителя заполняется, только если был неизвестен. */
+  async assignHouseByInvite(residentId: number, inviteCode: string, signal?: AbortSignal): Promise<InviteResult> {
+    const path = `/residents/${residentId}/house-by-invite`;
+    try {
+      const parsed = await this.request('POST', path, { invite_code: inviteCode }, signal);
+      const mismatch = (parsed as { mismatch?: unknown }).mismatch === true;
+      return { kind: 'ok', house: ApiClient.readHouse(parsed, path), mismatch };
+    } catch (error) {
+      // validation_error — код в QR битый (не того формата): для жителя это то же
+      // самое, что неизвестный код.
+      if (error instanceof ApiClientError && (error.code === 'house_not_found' || error.code === 'validation_error')) {
+        return { kind: 'unknown_code' };
+      }
+      throw error;
+    }
+  }
+
+  /** Дом по адресу, введённому жителем; разбирает адрес api (src/address.ts). */
+  async assignHouseByAddress(residentId: number, address: string, signal?: AbortSignal): Promise<AddressResult> {
+    const path = `/residents/${residentId}/house-by-address`;
+    try {
+      const parsed = await this.request('POST', path, { address }, signal);
+      return { kind: 'ok', house: ApiClient.readHouse(parsed, path) };
+    } catch (error) {
+      if (error instanceof ApiClientError && error.code === 'house_not_found') return { kind: 'not_found' };
+      // validation_error — например, текст длиннее 200 символов: для жителя это
+      // тоже «не понял адрес».
+      if (
+        error instanceof ApiClientError &&
+        (error.code === 'address_unrecognized' || error.code === 'validation_error')
+      ) {
+        return { kind: 'unrecognized' };
       }
       throw error;
     }

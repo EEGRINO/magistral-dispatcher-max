@@ -28,6 +28,13 @@ export const notFound = (message: string): ApiError => new ApiError(404, 'not_fo
 export const phoneNotRegistered = (): ApiError =>
   new ApiError(404, 'phone_not_registered', 'Номер не привязан ни к одной квартире');
 
+/** Ни QR-код, ни введённый адрес не совпали ни с одним домом. */
+export const houseNotFound = (message: string): ApiError => new ApiError(404, 'house_not_found', message);
+
+/** Во введённом тексте не нашлось пары «улица + номер дома». */
+export const addressUnrecognized = (): ApiError =>
+  new ApiError(400, 'address_unrecognized', 'Не удалось выделить улицу и номер дома');
+
 export const invalidReference = (message: string): ApiError =>
   new ApiError(400, 'invalid_reference', message);
 
