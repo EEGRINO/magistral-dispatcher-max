@@ -13,6 +13,7 @@ export const Action = {
   houseChat: 'menu:house_chat',
   cancelAddress: 'address:cancel',
   report: 'menu:report',
+  tickets: 'menu:tickets',
   /** «Нет, всё в порядке» после подозрения на опасность по словам. */
   dismissDanger: 'danger:dismiss',
   /** «Я позвонил(а)» после инструкции при запахе газа. */
@@ -68,6 +69,7 @@ function testAppRow(): Button[][] {
 export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard([
     callback('Сообщить о проблеме', Action.report),
+    callback('Мои заявки', Action.tickets),
     callback('Чат дома', Action.houseChat),
     ...appRow(botUsername),
     ...testAppRow(),

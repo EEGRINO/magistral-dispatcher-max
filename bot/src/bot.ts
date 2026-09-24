@@ -29,6 +29,7 @@ import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
 import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency, reportDraft } from './dialog-state.js';
 import { detectDanger, detectFire, isDangerType, type DangerType } from './emergency.js';
+import { parseStatusCommand, parseTicketNumber } from './status.js';
 import {
   Action,
   cancelAddressKeyboard,
@@ -595,6 +596,64 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
   await askStep(target, draft, messages.chooseButton);
 }
 
+// ── «Статус»: свои заявки ─────────────────────────────────────────────────
+
+/** Вошедший житель или null, если ответ уже отправлен (не вошёл, api недоступен). */
+async function requireResident(target: SendTarget, userId: number | undefined, where: string): Promise<Resident | null> {
+  if (userId === undefined) {
+    await askContact(target);
+    return null;
+  }
+  const resident = await findResident(target, userId, where);
+  if (resident === undefined) return null;
+  if (resident === null) {
+    await askContact(target);
+    return null;
+  }
+  return resident;
+}
+
+/**
+ * «Мои заявки» / «Статус»: незакрытые заявки. Одна — сразу подробности,
+ * несколько — список и «отправьте номер», ни одной — как создать новую.
+ */
+async function showTickets(target: SendTarget, userId: number | undefined): Promise<void> {
+  const resident = await requireResident(target, userId, 'при «Мои заявки»');
+  if (!resident) return;
+
+  try {
+    const tickets = await apiClient.listTickets(resident.id, true, shutdown.signal);
+    log.info('мои заявки', { resident_id: resident.id, active: tickets.length });
+
+    if (tickets.length === 0) await sendMenu(target, messages.noActiveTickets);
+    else if (tickets.length === 1) await sendMenu(target, messages.ticketDetails(tickets[0]!));
+    else await sendMenu(target, messages.ticketList(tickets));
+  } catch (error) {
+    await serviceUnavailable(target, 'при «Мои заявки»', { resident_id: resident.id }, error);
+  }
+}
+
+/**
+ * Одна заявка по номеру — только своя. Чужую отвечаем так же, как
+ * несуществующую: иначе перебором номеров можно узнать, какие заявки есть.
+ */
+async function showTicket(target: SendTarget, userId: number | undefined, ticketId: number): Promise<void> {
+  const resident = await requireResident(target, userId, 'при «статус N»');
+  if (!resident) return;
+
+  try {
+    const ticket = await apiClient.getTicket(ticketId, shutdown.signal);
+    if (!ticket || ticket.resident_id !== resident.id) {
+      log.info('статус: заявка не найдена среди своих', { resident_id: resident.id, ticket_id: ticketId });
+      await sendMenu(target, messages.ticketNotFound(ticketId));
+      return;
+    }
+    await sendMenu(target, messages.ticketDetails(ticket));
+  } catch (error) {
+    await serviceUnavailable(target, 'при «статус N»', { resident_id: resident.id, ticket_id: ticketId }, error);
+  }
+}
+
 // ── дом жителя ────────────────────────────────────────────────────────────
 
 /**
@@ -809,6 +868,14 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
     return;
   }
 
+  // «Статус» — «в любой момент» (тексты Павла): черновик заявки не трогаем,
+  // после ответа житель может продолжить её с того же шага.
+  const command = parseStatusCommand(text);
+  if (command) {
+    await (command.kind === 'list' ? showTickets(target, userId) : showTicket(target, userId, command.ticketId));
+    return;
+  }
+
   const draft = userId === undefined ? undefined : reportDraft.get(userId);
   if (userId !== undefined && draft) {
     if (draft.step === 'description') {
@@ -824,6 +891,13 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
   }
 
   if (userId === undefined || awaitingAddress.get(userId) === undefined) {
+    // Голый номер — ответ на «отправьте номер заявки». Только вне сценариев:
+    // в описании заявки или в адресе «12» — это описание или адрес.
+    const ticketId = parseTicketNumber(text);
+    if (ticketId !== null) {
+      await showTicket(target, userId, ticketId);
+      return;
+    }
     await showMenu(target, userId);
     return;
   }
@@ -887,6 +961,12 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
     case Action.report: {
       await answer('Сообщить о проблеме');
       await startReport(target, userId);
+      return;
+    }
+
+    case Action.tickets: {
+      await answer('Мои заявки');
+      await showTickets(target, userId);
       return;
     }
 

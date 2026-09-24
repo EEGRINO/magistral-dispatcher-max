@@ -40,6 +40,7 @@ export interface House {
 /** Заявка — только поля, которые нужны боту. Полный объект — docs/api.md. */
 export interface Ticket {
   id: number;
+  resident_id: number;
   problem_type: string;
   place: string | null;
   description: string | null;
@@ -232,6 +233,31 @@ export class ApiClient {
       throw new ApiClientError(201, null, `В ответе ${path} нет ticket.id`);
     }
     return created;
+  }
+
+  /** Заявки жителя, новые сверху; activeOnly — только незакрытые. */
+  async listTickets(residentId: number, activeOnly: boolean, signal?: AbortSignal): Promise<Ticket[]> {
+    const path = `/residents/${residentId}/tickets${activeOnly ? '?active=true' : ''}`;
+    const tickets = (await this.request('GET', path, undefined, signal) as { tickets?: Ticket[] }).tickets;
+    if (!Array.isArray(tickets)) {
+      throw new ApiClientError(200, null, `В ответе ${path} нет tickets`);
+    }
+    return tickets;
+  }
+
+  /** Заявка по номеру; null — такой нет. Чья она — проверяет вызывающий. */
+  async getTicket(ticketId: number, signal?: AbortSignal): Promise<Ticket | null> {
+    const path = `/tickets/${ticketId}`;
+    try {
+      const ticket = (await this.request('GET', path, undefined, signal) as { ticket?: Ticket }).ticket;
+      if (typeof ticket?.id !== 'number') {
+        throw new ApiClientError(200, null, `В ответе ${path} нет ticket.id`);
+      }
+      return ticket;
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 404 && error.code === 'not_found') return null;
+      throw error;
+    }
   }
 
   /** Житель, к которому уже привязан этот пользователь MAX; null — ещё не входил. */

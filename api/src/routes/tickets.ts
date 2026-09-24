@@ -12,13 +12,16 @@ import { rejectProxied } from '../internal-only.js';
 import {
   CreateTicketBody,
   ErrorResponse,
+  ResidentIdParams,
+  ResidentTicketsQuery,
   TicketIdParams,
+  TicketListResponse,
   TicketResponse,
   toTicketDto,
   type TicketRow,
 } from '../schemas.js';
 
-/** Поля заявки, возвращаемые наружу. Один список на оба запроса. */
+/** Поля заявки, возвращаемые наружу. Один список на все запросы. */
 const TICKET_COLUMNS = `
   id, resident_id, house_id, problem_type, place, description, status,
   assigned_organization_id, deadline_at, created_at, updated_at
@@ -85,6 +88,35 @@ export const ticketRoutes: FastifyPluginAsyncTypebox = async (app) => {
       });
 
       return reply.code(201).send({ ticket: toTicketDto(ticket) });
+    },
+  );
+
+  // Здесь, а не в residents.ts: список колонок и перевод в DTO — общие с /tickets.
+  app.get(
+    '/residents/:id/tickets',
+    {
+      schema: {
+        description: 'Заявки жителя, новые сверху; ?active=true — только незакрытые',
+        params: ResidentIdParams,
+        querystring: ResidentTicketsQuery,
+        response: { 200: TicketListResponse, 404: ErrorResponse },
+      },
+    },
+    async (request) => {
+      const { id } = request.params;
+
+      const resident = await pool.query('SELECT 1 FROM residents WHERE id = $1 AND archived_at IS NULL', [id]);
+      if (resident.rowCount === 0) throw notFound(`Житель ${id} не найден`);
+
+      const { rows } = await pool.query<TicketRow>(
+        `SELECT ${TICKET_COLUMNS} FROM tickets
+          WHERE resident_id = $1
+            ${request.query.active ? "AND status <> 'resolved'" : ''}
+          ORDER BY created_at DESC, id DESC
+          LIMIT 50`,
+        [id],
+      );
+      return { tickets: rows.map(toTicketDto) };
     },
   );
 

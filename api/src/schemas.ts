@@ -244,6 +244,17 @@ export const TicketResponse = Type.Object({ ticket: Ticket });
 
 export const TicketIdParams = Type.Object({ id: Id });
 
+export const ResidentTicketsQuery = Type.Object(
+  {
+    /** true — только незакрытые (new, in_progress). */
+    active: Type.Optional(Type.Boolean({ default: false })),
+  },
+  { additionalProperties: false },
+);
+
+/** Новые сверху; не больше 50 — боту для «Мои заявки» хватает с запасом. */
+export const TicketListResponse = Type.Object({ tickets: Type.Array(Ticket) });
+
 // ── Типы ───────────────────────────────────────────────────────────────
 
 export type ResidentDto = Static<typeof Resident>;

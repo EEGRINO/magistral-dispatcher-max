@@ -6,7 +6,30 @@
  */
 
 import type { DangerType } from './emergency.js';
-import { PLACES, PROBLEM_TYPES, type OwnerZone, type Place, type ProblemType } from './report.js';
+import { PLACES, PROBLEM_TYPES, isPlace, type OwnerZone, type Place, type ProblemType } from './report.js';
+import { STATUS_LABELS, isEmergency, problemLabel, type TicketStatus } from './status.js';
+
+/**
+ * Дата подачи заявки — по Москве: бот и БД живут в UTC, а житель видит
+ * «вчера» вместо «сегодня», если заявку подали ночью. Для MVP один часовой пояс.
+ */
+const createdDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
+
+/** Заявка для текстов «Статус» — поля из api (docs/api.md, объект Ticket). */
+export interface TicketView {
+  id: number;
+  problem_type: string;
+  place: string | null;
+  description: string | null;
+  status: TicketStatus;
+  created_at: string;
+}
+
+/** Строка списка: «№3 — 💧 Протечка / потоп, принята». */
+const ticketLine = (t: TicketView): string => `№${t.id} — ${problemLabel(t.problem_type)}, ${STATUS_LABELS[t.status]}`;
+
+/** Сколько строк в списке «несколько активных заявок». */
+const LIST_LIMIT = 10;
 
 /** Значения из .env.example — если они доехали до рантайма, .env не заполнен. */
 const PLACEHOLDERS = new Set([
@@ -295,6 +318,34 @@ export const messages = {
     'Чтобы проверить заявку в любой момент — напишите «Статус» или используйте команду /status.',
 
   ticketCancelled: 'Заявка отменена.',
+
+  // ── «Статус» (тексты Павла, раздел 6) ────────────────────────────────
+
+  /**
+   * Одна заявка. Строк «Ответственный» и «Осталось по нормативному сроку» из
+   * текстов Павла пока нет — их даст маршрутизация.
+   */
+  ticketDetails: (t: TicketView): string =>
+    `Заявка №${t.id}\n\n` +
+    `Статус: ${STATUS_LABELS[t.status]}\n` +
+    (isEmergency(t.problem_type) ? 'Приоритет: экстренная\n' : '') +
+    `Что: ${problemLabel(t.problem_type)}\n` +
+    (t.place && isPlace(t.place) ? `Где: ${PLACES[t.place]}\n` : '') +
+    `Подана: ${createdDate.format(new Date(t.created_at))}` +
+    (t.description ? `\nОписание: ${t.description}` : ''),
+
+  ticketList: (tickets: TicketView[]): string =>
+    'У вас несколько активных заявок:\n\n' +
+    tickets.slice(0, LIST_LIMIT).map(ticketLine).join('\n') +
+    (tickets.length > LIST_LIMIT ? `\n…и ещё ${tickets.length - LIST_LIMIT}` : '') +
+    '\n\nОтправьте номер заявки, чтобы посмотреть подробности.',
+
+  /** У Павла «…или расскажите, что случилось» — свободный текст заявку не создаёт, поэтому кнопка. */
+  noActiveTickets: 'У вас нет активных заявок. Чтобы создать новую — нажмите «Сообщить о проблеме».',
+
+  /** Чужая и несуществующая заявка — один ответ: номер чужой заявки не должен подтверждаться. */
+  ticketNotFound: (ticketId: number): string =>
+    `Заявка №${ticketId} не найдена среди ваших. Проверьте номер или нажмите «Мои заявки».`,
 
   draftExpired: 'Черновик заявки устарел — начните заново: «Сообщить о проблеме».',
 
