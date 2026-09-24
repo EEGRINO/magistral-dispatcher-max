@@ -184,3 +184,8 @@ dist-single/
 /Caddyfile
 /docker-compose.override.yml
 /docker-compose.override.yml.bak
+
+# Исходники документов Павла (разные форматы, дубли). В проект перенесено нужное:
+# config/rules.yaml, docs/danger-types-spec.md, docs/normative-deadlines.md,
+# docs/routing-test-cases.json. Папка — только для сверки, не коммитим.
+Pavel_docs/
