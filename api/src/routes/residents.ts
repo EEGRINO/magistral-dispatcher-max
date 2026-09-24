@@ -22,6 +22,28 @@ import {
 const RESIDENT_COLUMNS = 'id, house_id, max_chat_id, max_user_id, created_at';
 
 export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
+  // Вторая линия защиты — на случай, если nginx снова откроет эти пути наружу
+  // (так уже было 24.09.2026: оба домена проксировали в api всё подряд).
+  //
+  // nginx ставит X-Real-IP / X-Forwarded-For на КАЖДЫЙ проксируемый запрос, и
+  // снаружи убрать эти заголовки нельзя. Бот ходит в api напрямую по сети
+  // compose и их не шлёт. Значит, запрос с ними пришёл из интернета — отвечаем
+  // обычным «маршрута нет», как на любой несуществующий путь: 403 подсказал бы,
+  // что здесь что-то охраняется.
+  //
+  // Намеренно не через trustProxy: он решает, верить ли адресу клиента из этих
+  // заголовков, а здесь важен сам факт их наличия. trustProxy не трогаем.
+  //
+  // Хук объявлен внутри этого плагина — Fastify применяет его только к
+  // маршрутам /residents/*, /health и /tickets он не касается.
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.headers['x-real-ip'] !== undefined || request.headers['x-forwarded-for'] !== undefined) {
+      request.log.warn({ url: request.url }, 'внешний запрос к внутреннему /residents — отвечаем 404');
+      reply.callNotFound();
+      return reply;
+    }
+  });
+
   app.post(
     '/residents/link-by-phone',
     {
