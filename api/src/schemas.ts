@@ -226,6 +226,13 @@ export const Ticket = Type.Object({
   detail_code: Nullable(Type.String()),
   /** Правило config/rules.yaml, по которому направлена заявка; null — заявка до маршрутизации. */
   rule_id: Nullable(Type.String()),
+  /**
+   * Кто отвечает — для жителя: название организации или службы
+   * («аварийная газовая служба (104)»); null — назначить некого.
+   */
+  responsible_name: Nullable(Type.String()),
+  /** Срок сверен с первоисточником — только тогда deadline_at можно показывать жителю. */
+  deadline_verified: Type.Boolean(),
   status: TicketStatus,
   assigned_organization_id: Nullable(Id),
   deadline_at: Nullable(Type.String({ format: 'date-time' })),
@@ -290,6 +297,7 @@ export interface TicketRow {
   description: string | null;
   detail_code: string | null;
   rule_id: string | null;
+  assigned_organization_name: string | null;
   status: 'new' | 'in_progress' | 'resolved';
   assigned_organization_id: number | null;
   deadline_at: Date | null;
@@ -305,7 +313,13 @@ export const toResidentDto = (row: ResidentRow): ResidentDto => ({
   created_at: row.created_at.toISOString(),
 });
 
-export const toTicketDto = (row: TicketRow): TicketDto => ({
+/** Что о заявке знает только маршрутизация (rules.yaml), а не строка БД. */
+export interface TicketRouteView {
+  responsible_name: string | null;
+  deadline_verified: boolean;
+}
+
+export const toTicketDto = (row: TicketRow, route: TicketRouteView): TicketDto => ({
   id: row.id,
   resident_id: row.resident_id,
   house_id: row.house_id,
@@ -314,6 +328,8 @@ export const toTicketDto = (row: TicketRow): TicketDto => ({
   description: row.description,
   detail_code: row.detail_code,
   rule_id: row.rule_id,
+  responsible_name: route.responsible_name,
+  deadline_verified: route.deadline_verified,
   status: row.status,
   assigned_organization_id: row.assigned_organization_id,
   deadline_at: row.deadline_at ? row.deadline_at.toISOString() : null,

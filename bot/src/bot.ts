@@ -257,7 +257,7 @@ async function registerEmergency(
     log.warn('аварийная заявка', { resident_id: resident.id, ticket_id: ticket.id, type });
     await send(
       target,
-      messages.emergencyTicketCreated(ticket.id),
+      messages.emergencyTicketCreated(ticket),
       type === 'gas_smell' ? gasCalledKeyboard : undefined,
     );
   } catch (error) {
@@ -468,7 +468,7 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
       // Метрика пилота: «всё равно передать в УК» из зоны собственника.
       owner_zone_override: draft.ownerZone !== undefined,
     });
-    await sendMenu(target, messages.ticketCreated(ticket.id, draft.type === 'other'));
+    await sendMenu(target, messages.ticketCreated(ticket, draft.type === 'other'));
   } catch (error) {
     if (isAbort(error)) throw error;
     if (error instanceof ApiClientError && error.code === 'not_found') {

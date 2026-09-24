@@ -46,6 +46,12 @@ export interface Ticket {
   description: string | null;
   /** Правило config/rules.yaml, по которому api направил заявку. */
   rule_id: string | null;
+  /** Кто отвечает — название организации или службы; null — назначить некого. */
+  responsible_name: string | null;
+  /** Нормативный срок, ISO 8601; null — в правиле нет числа. */
+  deadline_at: string | null;
+  /** Срок сверен с первоисточником — только тогда его можно показать жителю. */
+  deadline_verified: boolean;
   status: 'new' | 'in_progress' | 'resolved';
   created_at: string;
 }

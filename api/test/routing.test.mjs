@@ -84,6 +84,14 @@ test('«двор» от бота (street) находит правила с yard'
   assert.ok(result.ok && result.rule.id === 'common_area_issue' && !result.fallback);
 });
 
+test('deadline_verified: нет поля — срок не сверен; true — сверен; не булево — ошибка', () => {
+  const rule = (extra) =>
+    `danger_types: []\nrules:\n  - id: other_unsure\n    type: other\n    place: [street]\n    responsible: management_company\n    danger: false\n${extra}`;
+  assert.equal(parseRules(rule('')).byId.get('other_unsure').deadlineVerified, false);
+  assert.equal(parseRules(rule('    deadline_verified: true\n')).byId.get('other_unsure').deadlineVerified, true);
+  assert.throws(() => parseRules(rule('    deadline_verified: "да"\n')), /deadline_verified/);
+});
+
 test('битый rules.yaml — понятная ошибка, а не падение где-то дальше', () => {
   assert.throws(() => parseRules('rules:\n  - id: x\n    type: leak\n'), /правило x: place/);
   assert.throws(() => parseRules('danger_types: []\n'), /нет списка rules/);

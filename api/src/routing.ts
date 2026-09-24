@@ -36,6 +36,12 @@ export interface Rule {
   manual: boolean;
   /** Нормативный срок в часах; null — числа нет. */
   deadlineHours: number | null;
+  /**
+   * Срок сверен с первоисточником (deadline_verified: true в rules.yaml ставит
+   * Павел). Пока false — жителю срок не показывается вовсе (решение 24.09.2026):
+   * цифры «средней уверенности» называть нельзя.
+   */
+  deadlineVerified: boolean;
 }
 
 export interface Rules {
@@ -43,6 +49,14 @@ export interface Rules {
   byId: Map<string, Rule>;
   dangerTypes: Set<string>;
 }
+
+/**
+ * Ответственный, у которого нет организации в доме, — как его назвать жителю.
+ * Остальные категории — название организации из БД.
+ */
+export const RESPONSIBLE_LABEL: Partial<Record<Responsible, string>> = {
+  gas_emergency_service: 'аварийная газовая служба (104)',
+};
 
 /** Правило ручной классификации — и для «Другое», и запасной выход (fallback_policy). */
 export const MANUAL_RULE_ID = 'other_unsure';
@@ -79,6 +93,9 @@ function parseRule(raw: unknown, index: number): Rule {
     fail(where, 'deadline_hours — положительное число или null');
   }
   if (r.routing !== undefined && r.routing !== 'manual') fail(where, 'routing — только manual');
+  if (r.deadline_verified !== undefined && typeof r.deadline_verified !== 'boolean') {
+    fail(where, 'deadline_verified — true или false');
+  }
 
   return {
     id: r.id,
@@ -90,6 +107,7 @@ function parseRule(raw: unknown, index: number): Rule {
     ownerZone: r.owner_zone === true,
     manual: r.routing === 'manual',
     deadlineHours: typeof hours === 'number' ? hours : null,
+    deadlineVerified: r.deadline_verified === true,
   };
 }
 

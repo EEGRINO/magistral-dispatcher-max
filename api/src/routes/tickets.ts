@@ -9,7 +9,7 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { pool, withTransaction } from '../db.js';
 import { notFound } from '../errors.js';
 import { rejectProxied } from '../internal-only.js';
-import { MANUAL_RULE_ID, resolve, type Responsible, type Rules } from '../routing.js';
+import { MANUAL_RULE_ID, RESPONSIBLE_LABEL, resolve, type Responsible, type Rules } from '../routing.js';
 import {
   CreateTicketBody,
   ErrorResponse,
@@ -22,11 +22,13 @@ import {
   type TicketRow,
 } from '../schemas.js';
 
-/** Поля заявки, возвращаемые наружу. Один список на все запросы. */
-const TICKET_COLUMNS = `
-  id, resident_id, house_id, problem_type, place, description, detail_code, rule_id, status,
-  assigned_organization_id, deadline_at, created_at, updated_at
-`;
+/** Заявка с названием ответственной организации. Один запрос на все маршруты. */
+const TICKET_SELECT = `
+  SELECT t.id, t.resident_id, t.house_id, t.problem_type, t.place, t.description, t.detail_code,
+         t.rule_id, t.status, t.assigned_organization_id, t.deadline_at, t.created_at, t.updated_at,
+         o.name AS assigned_organization_name
+    FROM tickets t
+    LEFT JOIN organizations o ON o.id = t.assigned_organization_id`;
 
 /** Какая организация дома отвечает по категории правила; null — назначить некого. */
 function responsibleOrganization(
@@ -53,6 +55,19 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
   // Внутренние: бот передаёт resident_id, и api ему верит. Снаружи — 404,
   // см. internal-only.ts. Мини-апп получит свои маршруты с проверкой initData.
   app.addHook('onRequest', rejectProxied);
+
+  /**
+   * Ответственный и сверенность срока — по правилу заявки. Правило ищется в
+   * текущем rules.yaml: исчезло из файла — ответственный из БД остаётся, а срок
+   * считаем несверенным.
+   */
+  const toDto = (row: TicketRow) => {
+    const rule = row.rule_id ? rules.byId.get(row.rule_id) : undefined;
+    return toTicketDto(row, {
+      responsible_name: row.assigned_organization_name ?? (rule ? RESPONSIBLE_LABEL[rule.responsible] ?? null : null),
+      deadline_verified: rule?.deadlineVerified ?? false,
+    });
+  };
 
   app.post(
     '/tickets',
@@ -118,12 +133,12 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
         // house_id копируем из жителя в саму заявку: житель может переехать,
         // заявка должна остаться привязанной к дому, где была проблема.
         // Срок — от момента создания, в часах из правила; нет числа — NULL.
-        const inserted = await client.query<TicketRow>(
+        const inserted = await client.query<{ id: number; status: string }>(
           `INSERT INTO tickets (resident_id, house_id, problem_type, place, description, detail_code,
                                 rule_id, assigned_organization_id, deadline_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                    now() + $9::numeric * interval '1 hour')
-           RETURNING ${TICKET_COLUMNS}`,
+           RETURNING id, status`,
           [
             resident_id,
             resident.house_id,
@@ -149,10 +164,12 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
           [row.id, row.status],
         );
 
-        return row;
+        // Перечитываем с названием организации — тем же запросом, что и GET.
+        const created = await client.query<TicketRow>(`${TICKET_SELECT} WHERE t.id = $1`, [row.id]);
+        return created.rows[0]!;
       });
 
-      return reply.code(201).send({ ticket: toTicketDto(ticket) });
+      return reply.code(201).send({ ticket: toDto(ticket) });
     },
   );
 
@@ -174,14 +191,14 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
       if (resident.rowCount === 0) throw notFound(`Житель ${id} не найден`);
 
       const { rows } = await pool.query<TicketRow>(
-        `SELECT ${TICKET_COLUMNS} FROM tickets
-          WHERE resident_id = $1
-            ${request.query.active ? "AND status <> 'resolved'" : ''}
-          ORDER BY created_at DESC, id DESC
+        `${TICKET_SELECT}
+          WHERE t.resident_id = $1
+            ${request.query.active ? "AND t.status <> 'resolved'" : ''}
+          ORDER BY t.created_at DESC, t.id DESC
           LIMIT 50`,
         [id],
       );
-      return { tickets: rows.map(toTicketDto) };
+      return { tickets: rows.map(toDto) };
     },
   );
 
@@ -200,10 +217,7 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
     async (request) => {
       const { id } = request.params;
 
-      const { rows } = await pool.query<TicketRow>(
-        `SELECT ${TICKET_COLUMNS} FROM tickets WHERE id = $1`,
-        [id],
-      );
+      const { rows } = await pool.query<TicketRow>(`${TICKET_SELECT} WHERE t.id = $1`, [id]);
 
       const row = rows[0];
 
@@ -211,7 +225,7 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
         throw notFound(`Заявка ${id} не найдена`);
       }
 
-      return { ticket: toTicketDto(row) };
+      return { ticket: toDto(row) };
     },
   );
 };

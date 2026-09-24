@@ -23,6 +23,31 @@ export interface TicketView {
   description: string | null;
   status: TicketStatus;
   created_at: string;
+  responsible_name: string | null;
+  deadline_at: string | null;
+  deadline_verified: boolean;
+}
+
+/** «Осталось»: часы до двух суток, дальше — сутки. */
+function timeLeft(deadlineIso: string): string {
+  const hours = Math.ceil((Date.parse(deadlineIso) - Date.now()) / 3_600_000);
+  if (hours <= 0) return 'срок истёк';
+  return hours < 48 ? `${hours} ч` : `${Math.floor(hours / 24)} дн.`;
+}
+
+/**
+ * Строки маршрутизации (тексты Павла): «Ответственный» — всегда, если он есть.
+ * «Осталось по нормативному сроку» — ТОЛЬКО если срок сверен с первоисточником
+ * (deadline_verified); иначе строки нет совсем, без заглушек (решение 24.09.2026).
+ * У решённой заявки срок не показываем — он уже не важен.
+ */
+function routeLines(t: Pick<TicketView, 'responsible_name' | 'deadline_at' | 'deadline_verified' | 'status'>): string {
+  const lines: string[] = [];
+  if (t.responsible_name) lines.push(`Ответственный: ${t.responsible_name}`);
+  if (t.deadline_verified && t.deadline_at && t.status !== 'resolved') {
+    lines.push(`Осталось по нормативному сроку: ${timeLeft(t.deadline_at)}`);
+  }
+  return lines.map((line) => `${line}\n`).join('');
 }
 
 /** Строка списка: «№3 — 💧 Протечка / потоп, принята». */
@@ -242,11 +267,13 @@ export const messages = {
     '📞 112 — единый номер экстренных служб\n\n' +
     'Покиньте помещение, не пользуйтесь лифтом. Когда будете в безопасности — я помогу оформить заявку.',
 
-  emergencyTicketCreated: (ticketId: number): string =>
+  emergencyTicketCreated: (t: TicketView): string =>
     'Заявка зарегистрирована.\n\n' +
-    `Номер заявки: ${ticketId}\n` +
+    `Номер заявки: ${t.id}\n` +
     'Статус: принята\n' +
-    'Приоритет: экстренная\n\n' +
+    'Приоритет: экстренная\n' +
+    routeLines(t) +
+    '\n' +
     'Чтобы проверить заявку в любой момент — напишите «Статус» или используйте команду /status.',
 
   emergencyTicketExists: (ticketId: number): string =>
@@ -313,14 +340,16 @@ export const messages = {
     `Описание: ${d.description ?? '—'}`,
 
   /** manual — тип «Другое / не уверен»: заявку классифицирует диспетчер. */
-  ticketCreated: (ticketId: number, manual: boolean): string =>
+  ticketCreated: (t: TicketView, manual: boolean): string =>
     (manual
       ? 'Такой тип обращения я не могу маршрутизировать автоматически — передаю заявку ' +
         'диспетчеру на ручную классификацию.\n\n'
       : '') +
     'Заявка зарегистрирована.\n\n' +
-    `Номер заявки: ${ticketId}\n` +
-    'Статус: принята\n\n' +
+    `Номер заявки: ${t.id}\n` +
+    'Статус: принята\n' +
+    routeLines(t) +
+    '\n' +
     'Чтобы проверить заявку в любой момент — напишите «Статус» или используйте команду /status.',
 
   ticketCancelled: 'Заявка отменена.',
@@ -328,13 +357,13 @@ export const messages = {
   // ── «Статус» (тексты Павла, раздел 6) ────────────────────────────────
 
   /**
-   * Одна заявка. Строк «Ответственный» и «Осталось по нормативному сроку» из
-   * текстов Павла пока нет — их даст маршрутизация.
+   * Одна заявка. «Ответственный» и «Осталось по нормативному сроку» — см. routeLines.
    */
   ticketDetails: (t: TicketView): string =>
     `Заявка №${t.id}\n\n` +
     `Статус: ${STATUS_LABELS[t.status]}\n` +
     (isEmergency(t.problem_type) ? 'Приоритет: экстренная\n' : '') +
+    routeLines(t) +
     `Что: ${problemLabel(t.problem_type)}\n` +
     (t.place && isPlace(t.place) ? `Где: ${PLACES[t.place]}\n` : '') +
     `Подана: ${createdDate.format(new Date(t.created_at))}` +

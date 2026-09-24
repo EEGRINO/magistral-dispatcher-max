@@ -48,8 +48,8 @@ npm run migrate:up
 
 ## Что учитывает схема
 
-Таблицы: `organizations`, `houses`, `routing_rules`, `residents`, `tickets`,
-`ticket_events`. Подробности — в комментариях внутри
+Таблицы: `organizations`, `houses`, `house_organizations`, `residents`,
+`tickets`, `ticket_events` (`routing_rules` из `0001` удалена в `0006`). Подробности — в комментариях внутри
 [`migrations/0001_initial_schema.js`](migrations/0001_initial_schema.js).
 
 [`0002_phone_auth_and_house_chat.js`](migrations/0002_phone_auth_and_house_chat.js)
@@ -79,9 +79,9 @@ npm run migrate:up
 (сработавшее правило `config/rules.yaml`, снимок на момент создания); таблица
 `house_organizations` — РСО дома по ролям (water / heat / electricity / gas).
 
-`routing_rules` из `0001` **не используется**: правила маршрутизации api читает
-из `config/rules.yaml` при старте (решение 24.09.2026). Удалить таблицу — отдельной
-миграцией, когда это будет решено.
+[`0006_drop_routing_rules.js`](migrations/0006_drop_routing_rules.js) (24.09.2026) —
+удаляет `routing_rules` из `0001`: она так и осталась пустой, правила маршрутизации
+api читает из `config/rules.yaml`. Откат возвращает таблицу в виде `0001`.
 
 ## Seed
 
