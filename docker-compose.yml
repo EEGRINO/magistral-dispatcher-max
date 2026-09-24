@@ -57,6 +57,10 @@ services:
     restart: "no"
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL не задан — заполни .env}
+      # Только для `npm run seed` (тестовые данные), миграциям не нужны.
+      # Номера и ссылка — в .env, чтобы не попасть в git.
+      SEED_TEST_PHONES: ${SEED_TEST_PHONES:-}
+      SEED_HOUSE_CHAT_LINK: ${SEED_HOUSE_CHAT_LINK:-}
     depends_on:
       db:
         condition: service_healthy

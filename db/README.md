@@ -52,6 +52,14 @@ npm run migrate:up
 `ticket_events`. Подробности — в комментариях внутри
 [`migrations/0001_initial_schema.js`](migrations/0001_initial_schema.js).
 
+[`0002_phone_auth_and_house_chat.js`](migrations/0002_phone_auth_and_house_chat.js)
+(24.09.2026) — вход жителя по телефону и чат дома: жителя заранее заводит УК
+(`residents.phone`, уникальный, формат `+7XXXXXXXXXX`), бот при входе привязывает
+к нему `max_chat_id` и `max_user_id`; у дома появились `street`/`number`
+(нормализованные, для поиска по вводу), `chat_link` и случайный `invite_code`
+для QR; у заявки — `description`. **Удаляет всех жителей и заявки**, созданные
+до неё: это были тестовые записи без телефона.
+
 `routing_rules` — контейнер под `config/rules.yaml`. Состав значений
 `problem_type` / `place` и содержимое `regulation_reference` определяются там,
 а не здесь.
@@ -61,3 +69,14 @@ npm run migrate:up
 Данные в `seed.js` — **выдуманные**, для локальной проверки. Скрипт идемпотентен
 (`ON CONFLICT DO NOTHING`) и отказывается работать при `NODE_ENV=production`
 без явного `ALLOW_SEED_IN_PRODUCTION=1`.
+
+Тестовые жители и ссылка на чат берутся из `.env`, а не из кода: номера — это
+персональные данные, в git им не место.
+
+```bash
+# в .env
+SEED_TEST_PHONES=+7XXXXXXXXXX,8 XXX XXX-XX-XX  # любой формат, через запятую
+SEED_HOUSE_CHAT_LINK=https://…                   # чат для первого тестового дома
+
+docker compose run --rm migrate npm run seed
+```
