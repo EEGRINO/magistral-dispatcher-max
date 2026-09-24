@@ -12,6 +12,8 @@
  * Опасность (газ, искрит, заливает) выясняется ДО обычной заявки: первым
  * вопросом «Сообщить о проблеме» и по словам в любом тексте жителя. Сначала —
  * инструкция, что делать, потом аварийная заявка (решение 24.09.2026).
+ * Обычная заявка: что случилось → где → граница зоны собственника (за ней
+ * заявка в УК не создаётся) → описание → подтверждение → номер.
  *
  * Состояний в БД нет. Вошёл ли человек — видно по БД; «ждём адрес», «код
  * дома из QR до входа» и черновики — в памяти (dialog-state.ts), перезапуск
@@ -23,19 +25,25 @@
 import { ApiClient, ApiClientError, type House, type Resident } from './api-client.js';
 import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
-import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency } from './dialog-state.js';
+import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency, reportDraft } from './dialog-state.js';
 import { detectDanger, isDangerType, type DangerType } from './emergency.js';
 import {
   Action,
+  boundaryKeyboard,
   cancelAddressKeyboard,
+  categoryKeyboard,
   confirmDangerKeyboard,
+  confirmTicketKeyboard,
   dangerKeyboard,
+  descriptionKeyboard,
   houseChatKeyboard,
   menuKeyboard,
+  placeKeyboard,
   requestContactKeyboard,
 } from './keyboards.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxAttachment, type MaxUpdate, type SendTarget } from './max-api.js';
+import { asksPlace, hasBoundary, isBoundaryAnswer, isCategory, isPlace, type ReportDraft } from './report.js';
 
 const api = new MaxApi();
 const apiClient = new ApiClient();
@@ -185,8 +193,9 @@ async function handleReport(target: SendTarget, userId: number | undefined): Pro
     return;
   }
 
-  // Новый сценарий — ожидание адреса больше не актуально.
+  // Новый сценарий — ожидание адреса и прошлый черновик больше не актуальны.
   awaitingAddress.delete(userId);
+  reportDraft.delete(userId);
   await send(target, messages.askDanger, dangerKeyboard);
 }
 
@@ -262,6 +271,171 @@ async function handleDangerText(
   );
 }
 
+// ── обычная заявка ────────────────────────────────────────────────────────
+
+/** Вопрос текущего шага черновика — после перехода и когда житель пишет вместо кнопки. */
+async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): Promise<void> {
+  const withLead = (text: string): string => (lead ? `${lead}\n${text}` : text);
+
+  switch (draft.step) {
+    case 'category':
+      await send(target, withLead(messages.askCategory), categoryKeyboard);
+      return;
+    case 'place':
+      await send(target, withLead(messages.askPlace), placeKeyboard);
+      return;
+    case 'boundary':
+      if (draft.category && hasBoundary(draft.category, draft.place)) {
+        await send(target, withLead(messages.askBoundary(draft.category)), boundaryKeyboard(draft.category));
+        return;
+      }
+      // Шаг границы без категории с границей — черновик испорчен; начинаем заново.
+      draft.step = 'category';
+      await askStep(target, draft, lead);
+      return;
+    case 'description':
+      await send(target, withLead(messages.askDescription), descriptionKeyboard);
+      return;
+    case 'confirm': {
+      if (!draft.category) {
+        draft.step = 'category';
+        await askStep(target, draft, lead);
+        return;
+      }
+      let address: string | null;
+      try {
+        address = (await apiClient.getHouse(draft.residentId, shutdown.signal))?.address ?? null;
+      } catch (error) {
+        await serviceUnavailable(target, 'при подтверждении заявки', { resident_id: draft.residentId }, error);
+        return;
+      }
+      const summary = messages.confirmTicket({
+        category: draft.category,
+        place: draft.place,
+        address,
+        description: draft.description ?? null,
+      });
+      await send(target, withLead(summary), confirmTicketKeyboard);
+    }
+  }
+}
+
+/** Перейти к шагу и задать его вопрос. Черновик пересохраняется — таймаут заново. */
+async function goTo(target: SendTarget, userId: number, draft: ReportDraft, step: ReportDraft['step']): Promise<void> {
+  draft.step = step;
+  reportDraft.set(userId, draft);
+  await askStep(target, draft);
+}
+
+/** «Нет, обычная проблема»: черновик заявки и первый вопрос. */
+async function startTicket(target: SendTarget, userId: number | undefined): Promise<void> {
+  if (userId === undefined) {
+    await askContact(target);
+    return;
+  }
+  const resident = await findResident(target, userId, 'при начале заявки');
+  if (resident === undefined) return;
+  if (resident === null) {
+    await askContact(target);
+    return;
+  }
+
+  awaitingAddress.delete(userId);
+  await goTo(target, userId, { residentId: resident.id, step: 'category' }, 'category');
+}
+
+/** Отправить заявку из черновика. При сбое черновик остаётся — можно нажать ещё раз. */
+async function submitTicket(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
+  if (!draft.category) {
+    await goTo(target, userId, draft, 'category');
+    return;
+  }
+
+  // Сразу убираем: повторное нажатие «Отправить» не создаст вторую заявку.
+  reportDraft.delete(userId);
+
+  try {
+    const ticket = await apiClient.createTicket(
+      draft.residentId,
+      { problemType: draft.category, place: draft.place ?? null, description: draft.description ?? null },
+      shutdown.signal,
+    );
+    log.info('заявка создана', { resident_id: draft.residentId, ticket_id: ticket.id, category: draft.category });
+    await sendMenu(target, messages.ticketCreated(ticket.id));
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    if (error instanceof ApiClientError && error.code === 'not_found') {
+      // Житель ушёл в архив, пока заполнял заявку.
+      log.warn('заявка от жителя, которого нет', { resident_id: draft.residentId });
+      await askContact(target);
+      return;
+    }
+    reportDraft.set(userId, draft);
+    await serviceUnavailable(target, 'при отправке заявки', { resident_id: draft.residentId }, error);
+  }
+}
+
+/**
+ * Кнопки шагов заявки. Кнопку из более раннего сообщения принимаем: житель
+ * передумал с категорией — начинаем с неё, дальнейшие ответы сбрасываются.
+ * Кнопка шага, до которого черновик не дошёл, — повторяем текущий вопрос.
+ */
+async function handleTicketButton(target: SendTarget, userId: number | undefined, payload: string): Promise<void> {
+  const draft = userId === undefined ? undefined : reportDraft.get(userId);
+  if (userId === undefined || !draft) {
+    await showMenu(target, userId, messages.draftExpired);
+    return;
+  }
+
+  if (payload === Action.cancelTicket) {
+    reportDraft.delete(userId);
+    await showMenu(target, userId, messages.ticketCancelled);
+    return;
+  }
+
+  const [kind, value = ''] = payload.split(':');
+
+  if (kind === 'cat' && isCategory(value)) {
+    const next: ReportDraft = { residentId: draft.residentId, step: 'category', category: value };
+    await goTo(target, userId, next, asksPlace(value) ? 'place' : 'description');
+    return;
+  }
+
+  if (kind === 'place' && isPlace(value) && draft.category && asksPlace(draft.category)) {
+    const next: ReportDraft = { residentId: draft.residentId, step: 'place', category: draft.category, place: value };
+    await goTo(target, userId, next, hasBoundary(draft.category, value) ? 'boundary' : 'description');
+    return;
+  }
+
+  if (kind === 'bound' && isBoundaryAnswer(value) && draft.category && hasBoundary(draft.category, draft.place)) {
+    if (value === 'owner') {
+      // Зона собственника: заявка в УК не создаётся (решение 24.09.2026).
+      reportDraft.delete(userId);
+      log.info('зона собственника — заявка не создана', { resident_id: draft.residentId, category: draft.category });
+      await showMenu(target, userId, messages.ownerZone(draft.category));
+      return;
+    }
+    // «Не знаю» — тоже в УК: разберутся на месте, отказывать по догадке нельзя.
+    await goTo(target, userId, draft, 'description');
+    return;
+  }
+
+  if (payload === Action.skipDescription && draft.step === 'description') {
+    draft.description = null;
+    await goTo(target, userId, draft, 'confirm');
+    return;
+  }
+
+  if (payload === Action.sendTicket && draft.step === 'confirm') {
+    await submitTicket(target, userId, draft);
+    return;
+  }
+
+  // Кнопка не к месту (например, «Отправить» из старого сообщения) — повторяем вопрос.
+  reportDraft.set(userId, draft);
+  await askStep(target, draft, messages.chooseButton);
+}
+
 // ── дом жителя ────────────────────────────────────────────────────────────
 
 /**
@@ -301,6 +475,10 @@ async function handleHouseChat(target: SendTarget, userId: number | undefined): 
     await askContact(target);
     return;
   }
+
+  // Другой сценарий — черновик заявки больше не актуален: иначе адрес дома
+  // ушёл бы в описание заявки.
+  reportDraft.delete(userId);
 
   let house: House | null;
   try {
@@ -369,8 +547,9 @@ async function handleStart(target: SendTarget, userId: number | undefined, invit
     return;
   }
 
-  // /start — один из путей выхода из ожидания адреса.
+  // /start — выход из ожидания адреса и из черновика заявки.
   awaitingAddress.delete(userId);
+  reportDraft.delete(userId);
 
   const resident = await findResident(target, userId, 'при /start');
   if (resident === undefined) return;
@@ -465,6 +644,20 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
     return;
   }
 
+  const draft = userId === undefined ? undefined : reportDraft.get(userId);
+  if (userId !== undefined && draft) {
+    if (draft.step === 'description') {
+      // Лимит api — 4000; длиннее MAX и не пришлёт, но обрезаем на всякий случай.
+      draft.description = text.slice(0, 4000);
+      await goTo(target, userId, draft, 'confirm');
+      return;
+    }
+    // Ждём кнопку, а пришёл текст — напоминаем и повторяем вопрос.
+    reportDraft.set(userId, draft);
+    await askStep(target, draft, messages.chooseButton);
+    return;
+  }
+
   if (userId === undefined || awaitingAddress.get(userId) === undefined) {
     await showMenu(target, userId);
     return;
@@ -509,9 +702,24 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
       await handleDangerButton(target, userId, type);
     } else {
       const text = userId === undefined ? undefined : pendingDangerText.get(userId);
-      if (userId !== undefined) pendingDangerText.delete(userId);
+      if (userId !== undefined) {
+        pendingDangerText.delete(userId);
+        // Авария вместо обычной заявки: черновик больше не нужен.
+        reportDraft.delete(userId);
+      }
       await registerEmergency(target, userId, type, text ?? null);
     }
+    return;
+  }
+
+  if (
+    /^(cat|place|bound):/.test(payload) ||
+    payload === Action.skipDescription ||
+    payload === Action.sendTicket ||
+    payload === Action.cancelTicket
+  ) {
+    await answer(payload === Action.cancelTicket ? 'Отменено' : 'Принято');
+    await handleTicketButton(target, userId, payload);
     return;
   }
 
@@ -524,13 +732,29 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
 
     case Action.noDanger: {
       await answer('Обычная проблема');
-      await showMenu(target, userId, messages.ordinaryNotYet);
+      await startTicket(target, userId);
       return;
     }
 
     case Action.dismissDanger: {
-      if (userId !== undefined) pendingDangerText.delete(userId);
       await answer('Хорошо');
+      const text = userId === undefined ? undefined : pendingDangerText.get(userId);
+      const draft = userId === undefined ? undefined : reportDraft.get(userId);
+      if (userId !== undefined) pendingDangerText.delete(userId);
+
+      // Слово-признак попалось посреди заявки — не авария, продолжаем её. Если
+      // это было описание, оно и становится описанием заявки.
+      if (userId !== undefined && draft) {
+        if (draft.step === 'description' && text) {
+          draft.description = text.slice(0, 4000);
+          await goTo(target, userId, draft, 'confirm');
+        } else {
+          reportDraft.set(userId, draft);
+          await askStep(target, draft, 'Хорошо, продолжим заявку.');
+        }
+        return;
+      }
+
       await showMenu(target, userId, messages.dangerDismissed);
       return;
     }

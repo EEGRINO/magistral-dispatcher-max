@@ -8,6 +8,7 @@
  */
 
 import type { DangerType } from './emergency.js';
+import type { ReportDraft } from './report.js';
 
 class ExpiringMap<V> {
   private readonly items = new Map<number, { value: V; expiresAt: number }>();
@@ -65,3 +66,6 @@ export const recentEmergency = new ExpiringMap<Partial<Record<DangerType, number
  * user_id → текст. Уйдёт в описание аварийной заявки. 15 минут.
  */
 export const pendingDangerText = new ExpiringMap<string>(15 * 60 * 1000);
+
+/** Черновик обычной заявки: user_id → черновик. 15 минут бездействия — забыт. */
+export const reportDraft = new ExpiringMap<ReportDraft>(15 * 60 * 1000);

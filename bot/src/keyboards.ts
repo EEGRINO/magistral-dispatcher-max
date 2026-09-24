@@ -4,6 +4,7 @@
  */
 import { config } from './config.js';
 import type { DangerType } from './emergency.js';
+import { CATEGORIES, PLACES, type BoundaryCategory, type Category, type Place } from './report.js';
 import type { MaxAttachment } from './max-api.js';
 
 /** payload кнопок callback — по ним бот понимает, что нажато. */
@@ -15,7 +16,15 @@ export const Action = {
   noDanger: 'danger:none',
   /** «Нет, всё в порядке» после подозрения на опасность по словам. */
   dismissDanger: 'danger:dismiss',
+  skipDescription: 'desc:skip',
+  sendTicket: 'ticket:send',
+  cancelTicket: 'ticket:cancel',
 } as const;
+
+/** Шаги обычной заявки: cat:<код>, place:<код>, bound:<uk|owner|unknown>. */
+export const categoryAction = (category: Category): string => `cat:${category}`;
+export const placeAction = (place: Place): string => `place:${place}`;
+export const boundaryAction = (answer: 'uk' | 'owner' | 'unknown'): string => `bound:${answer}`;
 
 /** Кнопка опасности: danger:<тип> — сразу экстренная заявка. */
 export const dangerAction = (type: DangerType): string => `danger:${type}`;
@@ -91,6 +100,52 @@ export function confirmDangerKeyboard(type: DangerType): MaxAttachment[] {
     [{ type: 'callback', text: 'Нет, всё в порядке', payload: Action.dismissDanger }],
   ]);
 }
+
+// ── обычная заявка ────────────────────────────────────────────────────────
+
+/** «Отмена» — на каждом шаге заявки: выйти можно в любой момент. */
+const cancelTicketRow: Button[] = [{ type: 'callback', text: 'Отмена', payload: Action.cancelTicket }];
+
+export const categoryKeyboard: MaxAttachment[] = keyboard([
+  ...(Object.entries(CATEGORIES) as [Category, string][]).map(([code, label]) => [
+    { type: 'callback', text: label, payload: categoryAction(code) },
+  ]),
+  cancelTicketRow,
+]);
+
+export const placeKeyboard: MaxAttachment[] = keyboard([
+  ...(Object.entries(PLACES) as [Place, string][]).map(([code, label]) => [
+    // Подпись с заглавной: «в квартире» → «В квартире».
+    { type: 'callback', text: label[0]!.toUpperCase() + label.slice(1), payload: placeAction(code) },
+  ]),
+  cancelTicketRow,
+]);
+
+/** Кнопки границы — своими словами для каждой категории: «первый кран» понятнее, чем «зона ответственности». */
+const BOUNDARY_BUTTONS: Record<BoundaryCategory, { uk: string; owner: string }> = {
+  water: { uk: 'Стояк или до первого крана', owner: 'После крана: смеситель, трубы, унитаз' },
+  electricity: { uk: 'Этажный щиток, до счётчика', owner: 'Проводка, розетки, выключатели в квартире' },
+};
+
+export function boundaryKeyboard(category: BoundaryCategory): MaxAttachment[] {
+  const labels = BOUNDARY_BUTTONS[category];
+  return keyboard([
+    [{ type: 'callback', text: labels.uk, payload: boundaryAction('uk') }],
+    [{ type: 'callback', text: labels.owner, payload: boundaryAction('owner') }],
+    [{ type: 'callback', text: 'Не знаю', payload: boundaryAction('unknown') }],
+    cancelTicketRow,
+  ]);
+}
+
+export const descriptionKeyboard: MaxAttachment[] = keyboard([
+  [{ type: 'callback', text: 'Без описания', payload: Action.skipDescription }],
+  cancelTicketRow,
+]);
+
+export const confirmTicketKeyboard: MaxAttachment[] = keyboard([
+  [{ type: 'callback', text: 'Отправить', payload: Action.sendTicket }],
+  cancelTicketRow,
+]);
 
 export const requestContactKeyboard: MaxAttachment[] = keyboard([
   [{ type: 'request_contact', text: 'Поделиться контактом' }],

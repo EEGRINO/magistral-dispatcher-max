@@ -421,8 +421,13 @@
 `resident_id` нет или он в архиве), `bad_request` (400).
 
 **Коды `problem_type` аварийных заявок** (бот, 24.09.2026): `gas_smell` — запах
-газа, `sparking` — искрит проводка или дым, `flooding` — прорыв воды. Перечень
-обычных типов согласуется с Павлом (`config/rules.yaml`).
+газа, `sparking` — искрит проводка или дым, `flooding` — прорыв воды.
+
+**Коды обычных заявок из диалога бота** (24.09.2026, перечень согласуется с Павлом,
+потом — `config/rules.yaml`): `problem_type` — `water`, `heating`,
+`electricity`, `elevator`, `common_area`, `other`; `place` — `apartment`,
+`entrance`, `building` (подвал, крыша, двор) или `null` (лифт, подъезд — не
+спрашивается). Заявки из зоны собственника в api не приходят вовсе — бот их не создаёт.
 
 > ⚠️ **Пока всегда `status: "new"`, `assigned_organization_id: null`,
 > `deadline_at: null`.** Это не ошибка: маршрутизация по `config/rules.yaml`
