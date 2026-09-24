@@ -28,6 +28,10 @@ docker compose up --build
 
 Логи: `docker compose logs -f bot`
 
+**Следующий шаг — завести дома и жителей УК**, иначе войти в бота не сможет
+никто: пошагово, с Excel-импортом — [`docs/RUN.md`](docs/RUN.md), «Дома и
+жители: команда УК». Как устроено хранение данных — [`docs/db-overview.md`](docs/db-overview.md).
+
 Подробная инструкция и разбор типичных проблем первого запуска —
 [`docs/RUN.md`](docs/RUN.md). Описание проблемы, решения и статуса проекта
 для защиты — [`docs/EXPLANATORY-NOTE.md`](docs/EXPLANATORY-NOTE.md).
