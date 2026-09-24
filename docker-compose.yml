@@ -149,6 +149,8 @@ services:
       API_TIMEOUT_MS: ${API_TIMEOUT_MS:-5000}
       # ВРЕМЕННО: кнопка-ссылка на мини-апп в меню, пока он не привязан к боту.
       MINIAPP_TEST_URL: ${MINIAPP_TEST_URL:-}
+      # Телефон аварийной службы УК в экстренных инструкциях; пусто — без номера.
+      EMERGENCY_PHONE: ${EMERGENCY_PHONE:-}
 
     depends_on:
       api:

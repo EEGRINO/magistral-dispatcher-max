@@ -8,6 +8,7 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { pool, withTransaction } from '../db.js';
 import { notFound } from '../errors.js';
+import { rejectProxied } from '../internal-only.js';
 import {
   CreateTicketBody,
   ErrorResponse,
@@ -19,11 +20,15 @@ import {
 
 /** Поля заявки, возвращаемые наружу. Один список на оба запроса. */
 const TICKET_COLUMNS = `
-  id, resident_id, house_id, problem_type, place, status,
+  id, resident_id, house_id, problem_type, place, description, status,
   assigned_organization_id, deadline_at, created_at, updated_at
 `;
 
 export const ticketRoutes: FastifyPluginAsyncTypebox = async (app) => {
+  // Внутренние: бот передаёт resident_id, и api ему верит. Снаружи — 404,
+  // см. internal-only.ts. Мини-апп получит свои маршруты с проверкой initData.
+  app.addHook('onRequest', rejectProxied);
+
   app.post(
     '/tickets',
     {
@@ -38,13 +43,14 @@ export const ticketRoutes: FastifyPluginAsyncTypebox = async (app) => {
       },
     },
     async (request, reply) => {
-      const { resident_id, problem_type, place = null } = request.body;
+      const { resident_id, problem_type, place = null, description = null } = request.body;
 
       // Заявка и первая запись в истории создаются вместе или не создаются
       // вовсе: заявка без события 'created' сломала бы ленту событий.
       const ticket = await withTransaction(async (client) => {
         const residentResult = await client.query<{ id: number; house_id: number | null }>(
-          'SELECT id, house_id FROM residents WHERE id = $1',
+          // Житель из архива заявок не подаёт: для бота его уже нет.
+          'SELECT id, house_id FROM residents WHERE id = $1 AND archived_at IS NULL',
           [resident_id],
         );
 
@@ -57,10 +63,10 @@ export const ticketRoutes: FastifyPluginAsyncTypebox = async (app) => {
         // house_id копируем из жителя в саму заявку: житель может переехать,
         // заявка должна остаться привязанной к дому, где была проблема.
         const inserted = await client.query<TicketRow>(
-          `INSERT INTO tickets (resident_id, house_id, problem_type, place)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO tickets (resident_id, house_id, problem_type, place, description)
+           VALUES ($1, $2, $3, $4, $5)
            RETURNING ${TICKET_COLUMNS}`,
-          [resident_id, resident.house_id, problem_type, place],
+          [resident_id, resident.house_id, problem_type, place, description],
         );
 
         const row = inserted.rows[0];

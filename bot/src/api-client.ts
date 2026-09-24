@@ -33,6 +33,22 @@ export interface House {
   chat_link: string | null;
 }
 
+/** Заявка — только поля, которые нужны боту. Полный объект — docs/api.md. */
+export interface Ticket {
+  id: number;
+  problem_type: string;
+  place: string | null;
+  description: string | null;
+  status: 'new' | 'in_progress' | 'resolved';
+  created_at: string;
+}
+
+export interface NewTicket {
+  problemType: string;
+  place?: string | null;
+  description?: string | null;
+}
+
 /** Итог привязки: либо житель, либо «такого номера у УК нет». */
 export type LinkResult =
   | { kind: 'linked'; resident: Resident }
@@ -191,6 +207,27 @@ export class ApiClient {
       }
       throw error;
     }
+  }
+
+  /** Завести заявку от имени жителя; номер заявки — ticket.id. */
+  async createTicket(residentId: number, ticket: NewTicket, signal?: AbortSignal): Promise<Ticket> {
+    const path = '/tickets';
+    const parsed = await this.request(
+      'POST',
+      path,
+      {
+        resident_id: residentId,
+        problem_type: ticket.problemType,
+        place: ticket.place ?? null,
+        description: ticket.description ?? null,
+      },
+      signal,
+    );
+    const created = (parsed as { ticket?: Ticket }).ticket;
+    if (typeof created?.id !== 'number') {
+      throw new ApiClientError(201, null, `В ответе ${path} нет ticket.id`);
+    }
+    return created;
   }
 
   /** Житель, к которому уже привязан этот пользователь MAX; null — ещё не входил. */

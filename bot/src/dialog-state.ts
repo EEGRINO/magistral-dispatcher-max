@@ -7,6 +7,8 @@
  * (sender у сообщения, user у bot_started и у нажатия кнопки).
  */
 
+import type { DangerType } from './emergency.js';
+
 class ExpiringMap<V> {
   private readonly items = new Map<number, { value: V; expiresAt: number }>();
 
@@ -50,3 +52,16 @@ export const awaitingAddress = new ExpiringMap<number>(15 * 60 * 1000);
  * поделиться контактом; дольше держать незачем.
  */
 export const pendingInvite = new ExpiringMap<string>(60 * 60 * 1000);
+
+/**
+ * Недавние аварийные заявки: user_id → номер заявки по типу опасности. Житель в
+ * панике жмёт кнопку и пишет «газ!» несколько раз — вторая заявка диспетчеру
+ * не нужна, достаточно напомнить номер первой. 30 минут.
+ */
+export const recentEmergency = new ExpiringMap<Partial<Record<DangerType, number>>>(30 * 60 * 1000);
+
+/**
+ * Текст, в котором бот заподозрил опасность, до нажатия «Да, это авария»:
+ * user_id → текст. Уйдёт в описание аварийной заявки. 15 минут.
+ */
+export const pendingDangerText = new ExpiringMap<string>(15 * 60 * 1000);

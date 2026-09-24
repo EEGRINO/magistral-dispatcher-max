@@ -4,12 +4,18 @@
  * Сценарий согласован 24.09.2026 (docs/Решения_проекта.md):
  *   - не вошёл → кнопка «Поделиться контактом» → проверка подписи MAX →
  *     привязка к жителю, заранее заведённому УК;
- *   - вошёл → меню: «Чат дома» и «Отправить заявку ЖКХ» (мини-приложение);
+ *   - вошёл → меню: «Сообщить о проблеме», «Чат дома», «Отправить заявку ЖКХ»
+ *     (мини-приложение);
  *   - «Чат дома»: дом по данным УК → по QR (?start=invite_code) → по адресу,
  *     введённому вручную; ответ — адрес и ссылка на чат дома.
  *
- * Состояний в БД нет. Вошёл ли человек — видно по БД; «ждём адрес» и «код
- * дома из QR до входа» — в памяти (dialog-state.ts), перезапуск их стирает.
+ * Опасность (газ, искрит, заливает) выясняется ДО обычной заявки: первым
+ * вопросом «Сообщить о проблеме» и по словам в любом тексте жителя. Сначала —
+ * инструкция, что делать, потом аварийная заявка (решение 24.09.2026).
+ *
+ * Состояний в БД нет. Вошёл ли человек — видно по БД; «ждём адрес», «код
+ * дома из QR до входа» и черновики — в памяти (dialog-state.ts), перезапуск
+ * их стирает.
  *
  * Модуль импортируется динамически из index.ts, поэтому падение валидации
  * конфига долетает до обработчика как обычная ошибка, а не как стектрейс.
@@ -17,10 +23,13 @@
 import { ApiClient, ApiClientError, type House, type Resident } from './api-client.js';
 import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
-import { awaitingAddress, pendingInvite } from './dialog-state.js';
+import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency } from './dialog-state.js';
+import { detectDanger, isDangerType, type DangerType } from './emergency.js';
 import {
   Action,
   cancelAddressKeyboard,
+  confirmDangerKeyboard,
+  dangerKeyboard,
   houseChatKeyboard,
   menuKeyboard,
   requestContactKeyboard,
@@ -151,14 +160,106 @@ async function findResident(
 }
 
 /** Меню вошедшему, кнопка контакта — не вошедшему. */
-async function showMenu(target: SendTarget, userId: number | undefined): Promise<void> {
+async function showMenu(target: SendTarget, userId: number | undefined, lead?: string): Promise<void> {
   if (userId === undefined) {
     await askContact(target);
     return;
   }
   const resident = await findResident(target, userId, 'при показе меню');
   if (resident === undefined) return;
-  await (resident ? sendMenu(target) : askContact(target));
+  await (resident ? sendMenu(target, lead) : askContact(target));
+}
+
+// ── опасность: газ, искрит, заливает ──────────────────────────────────────
+
+/** «Сообщить о проблеме»: первый вопрос — есть ли опасность прямо сейчас. */
+async function handleReport(target: SendTarget, userId: number | undefined): Promise<void> {
+  if (userId === undefined) {
+    await askContact(target);
+    return;
+  }
+  const resident = await findResident(target, userId, 'при «Сообщить о проблеме»');
+  if (resident === undefined) return;
+  if (resident === null) {
+    await askContact(target);
+    return;
+  }
+
+  // Новый сценарий — ожидание адреса больше не актуально.
+  awaitingAddress.delete(userId);
+  await send(target, messages.askDanger, dangerKeyboard);
+}
+
+/**
+ * Аварийная заявка. Инструкция жителю к этому моменту УЖЕ отправлена: заявка
+ * может не создаться (api лежит, житель не вошёл), а что делать при утечке
+ * газа, человек должен узнать в любом случае.
+ */
+async function registerEmergency(
+  target: SendTarget,
+  userId: number | undefined,
+  type: DangerType,
+  description: string | null,
+): Promise<void> {
+  if (userId === undefined) {
+    await send(target, messages.emergencyNeedsLogin, requestContactKeyboard);
+    return;
+  }
+
+  const earlier = recentEmergency.get(userId)?.[type];
+  if (earlier !== undefined) {
+    await send(target, messages.emergencyTicketExists(earlier));
+    return;
+  }
+
+  try {
+    const resident = await apiClient.findByMaxUser(userId, shutdown.signal);
+    if (!resident) {
+      await send(target, messages.emergencyNeedsLogin, requestContactKeyboard);
+      return;
+    }
+
+    const ticket = await apiClient.createTicket(resident.id, { problemType: type, description }, shutdown.signal);
+    recentEmergency.set(userId, { ...recentEmergency.get(userId), [type]: ticket.id });
+    // warn, а не info: аварийную заявку в логе должно быть видно сразу.
+    log.warn('аварийная заявка', { resident_id: resident.id, ticket_id: ticket.id, type });
+    await send(target, messages.emergencyTicketCreated(ticket.id));
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    log.error('аварийная заявка не создана', { user_id: userId, type, error: errorText(error) });
+    await send(target, messages.emergencyTicketFailed);
+  }
+}
+
+/** Кнопка опасности: инструкция и сразу заявка — житель выбрал её сам. */
+async function handleDangerButton(target: SendTarget, userId: number | undefined, type: DangerType): Promise<void> {
+  if (userId !== undefined) pendingDangerText.delete(userId);
+  await send(target, messages.dangerInstructions(type));
+  await registerEmergency(target, userId, type, null);
+}
+
+/**
+ * Опасность заподозрена по словам. Инструкция — сразу, без вопросов; заявку —
+ * только по кнопке «Да, это авария»: «газовая плита не работает» тоже
+ * совпадёт, и ложная аварийная заявка диспетчеру не нужна.
+ * Сам текст в лог не пишем — в нём бывает адрес.
+ */
+async function handleDangerText(
+  target: SendTarget,
+  userId: number | undefined,
+  text: string,
+  type: DangerType,
+): Promise<void> {
+  log.info('опасность по словам', { user_id: userId, type });
+  if (userId !== undefined) {
+    awaitingAddress.delete(userId);
+    pendingDangerText.set(userId, text);
+  }
+  await send(
+    target,
+    `${messages.dangerInstructions(type)}\n\n${messages.confirmDanger}`,
+    confirmDangerKeyboard(type),
+  );
 }
 
 // ── дом жителя ────────────────────────────────────────────────────────────
@@ -352,8 +453,18 @@ async function handleContact(target: SendTarget, senderId: number | undefined, c
   await sendMenu(target, messages.loggedIn(resident.id));
 }
 
-/** Обычный текст: ждём адрес — это адрес; иначе меню (или кнопка контакта, если не вошёл). */
+/**
+ * Обычный текст. Сначала — страховка по словам: опасность важнее любого шага
+ * сценария и не требует входа. Дальше: ждём адрес — это адрес; иначе меню
+ * (или кнопка контакта, если не вошёл).
+ */
 async function handleText(target: SendTarget, userId: number | undefined, text: string): Promise<void> {
+  const danger = detectDanger(text);
+  if (danger) {
+    await handleDangerText(target, userId, text, danger);
+    return;
+  }
+
   if (userId === undefined || awaitingAddress.get(userId) === undefined) {
     await showMenu(target, userId);
     return;
@@ -387,7 +498,43 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
     }
   };
 
-  switch (callback.payload) {
+  const payload = callback.payload ?? '';
+
+  // Кнопки с типом опасности в payload: danger:<тип> и danger_confirm:<тип>.
+  const [prefix, type] = payload.split(':');
+  if ((prefix === 'danger' || prefix === 'danger_confirm') && type && isDangerType(type)) {
+    await answer('Принято');
+    if (prefix === 'danger') {
+      log.info('опасность по кнопке', { user_id: userId, type });
+      await handleDangerButton(target, userId, type);
+    } else {
+      const text = userId === undefined ? undefined : pendingDangerText.get(userId);
+      if (userId !== undefined) pendingDangerText.delete(userId);
+      await registerEmergency(target, userId, type, text ?? null);
+    }
+    return;
+  }
+
+  switch (payload) {
+    case Action.report: {
+      await answer('Сообщить о проблеме');
+      await handleReport(target, userId);
+      return;
+    }
+
+    case Action.noDanger: {
+      await answer('Обычная проблема');
+      await showMenu(target, userId, messages.ordinaryNotYet);
+      return;
+    }
+
+    case Action.dismissDanger: {
+      if (userId !== undefined) pendingDangerText.delete(userId);
+      await answer('Хорошо');
+      await showMenu(target, userId, messages.dangerDismissed);
+      return;
+    }
+
     case Action.houseChat: {
       await answer('Чат дома');
       await handleHouseChat(target, userId);

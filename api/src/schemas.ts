@@ -215,6 +215,7 @@ export const Ticket = Type.Object({
   house_id: Nullable(Id),
   problem_type: Type.String(),
   place: Nullable(Type.String()),
+  description: Nullable(Type.String()),
   status: TicketStatus,
   assigned_organization_id: Nullable(Id),
   deadline_at: Nullable(Type.String({ format: 'date-time' })),
@@ -227,6 +228,8 @@ export const CreateTicketBody = Type.Object(
     resident_id: Id,
     problem_type: Type.String({ minLength: 1, maxLength: 200 }),
     place: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 200 }))),
+    /** Своими словами жителя. Длинное сообщение MAX — до 4000 символов. */
+    description: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 4000 }))),
   },
   { additionalProperties: false },
 );
@@ -261,6 +264,7 @@ export interface TicketRow {
   house_id: number | null;
   problem_type: string;
   place: string | null;
+  description: string | null;
   status: 'new' | 'in_progress' | 'resolved';
   assigned_organization_id: number | null;
   deadline_at: Date | null;
@@ -282,6 +286,7 @@ export const toTicketDto = (row: TicketRow): TicketDto => ({
   house_id: row.house_id,
   problem_type: row.problem_type,
   place: row.place,
+  description: row.description,
   status: row.status,
   assigned_organization_id: row.assigned_organization_id,
   deadline_at: row.deadline_at ? row.deadline_at.toISOString() : null,

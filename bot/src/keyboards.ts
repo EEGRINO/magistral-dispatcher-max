@@ -3,13 +3,24 @@
  * docs/max-notes.md, раздел «Inline-клавиатура».
  */
 import { config } from './config.js';
+import type { DangerType } from './emergency.js';
 import type { MaxAttachment } from './max-api.js';
 
 /** payload кнопок callback — по ним бот понимает, что нажато. */
 export const Action = {
   houseChat: 'menu:house_chat',
   cancelAddress: 'address:cancel',
+  report: 'menu:report',
+  /** Обычная проблема, без опасности. */
+  noDanger: 'danger:none',
+  /** «Нет, всё в порядке» после подозрения на опасность по словам. */
+  dismissDanger: 'danger:dismiss',
 } as const;
+
+/** Кнопка опасности: danger:<тип> — сразу экстренная заявка. */
+export const dangerAction = (type: DangerType): string => `danger:${type}`;
+/** Подтверждение опасности, заподозренной по словам: danger_confirm:<тип>. */
+export const confirmDangerAction = (type: DangerType): string => `danger_confirm:${type}`;
 
 type Button = Record<string, unknown>;
 
@@ -44,6 +55,7 @@ function testAppRow(): Button[][] {
 
 export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard([
+    [{ type: 'callback', text: 'Сообщить о проблеме', payload: Action.report }],
     [{ type: 'callback', text: 'Чат дома', payload: Action.houseChat }],
     ...appRow(botUsername),
     ...testAppRow(),
@@ -64,6 +76,21 @@ export function houseChatKeyboard(chatLink: string | null, botUsername: string |
 export const cancelAddressKeyboard: MaxAttachment[] = keyboard([
   [{ type: 'callback', text: 'Отмена', payload: Action.cancelAddress }],
 ]);
+
+/** Первый вопрос сценария «Сообщить о проблеме». Кнопки опасности — первыми. */
+export const dangerKeyboard: MaxAttachment[] = keyboard([
+  [{ type: 'callback', text: 'Пахнет газом', payload: dangerAction('gas_smell') }],
+  [{ type: 'callback', text: 'Искрит проводка, дым', payload: dangerAction('sparking') }],
+  [{ type: 'callback', text: 'Заливает водой', payload: dangerAction('flooding') }],
+  [{ type: 'callback', text: 'Нет, обычная проблема', payload: Action.noDanger }],
+]);
+
+export function confirmDangerKeyboard(type: DangerType): MaxAttachment[] {
+  return keyboard([
+    [{ type: 'callback', text: 'Да, это авария', payload: confirmDangerAction(type) }],
+    [{ type: 'callback', text: 'Нет, всё в порядке', payload: Action.dismissDanger }],
+  ]);
+}
 
 export const requestContactKeyboard: MaxAttachment[] = keyboard([
   [{ type: 'request_contact', text: 'Поделиться контактом' }],
