@@ -231,6 +231,10 @@ server {
     server_name api.ВАШ-ДОМЕН;
     location / {
         proxy_pass http://127.0.0.1:PORT;   # подставить $API_PORT
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -256,6 +260,10 @@ server {
     # живут без него (docs/api.md): /api/health → http://127.0.0.1:PORT/health
     location /api/ {
         proxy_pass http://127.0.0.1:PORT/;   # подставить $API_PORT
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -349,3 +357,34 @@ Russian Trusted CA (Минцифры РФ), которого нет во вст�
 (`NODE_EXTRA_CA_CERTS` → `bot/certs/`) и работает «из коробки» и в Docker,
 и локально — если ошибка всё же появилась, разбор в
 [`docs/max-notes.md`](max-notes.md#️-tls-nodejs-не-доверяет-сертификату-platform-api2maxru-из-коробки).
+
+### `migrate` падает с `getaddrinfo ENOTFOUND db`, хотя `db` «healthy»
+
+Проверено 24.09.2026 на сервере, где уже стоял системный PostgreSQL.
+
+Симптом сбивает с толку: `db` в статусе `healthy`, в его логах
+`ready to accept connections`, а `migrate` не находит имя `db`; `api` и
+`bot` висят в `Created`. Настоящая причина — **порт 5432 на хосте занят**
+(обычно системным Postgres, `systemctl is-active postgresql`). Docker не
+может пробросить порт и оставляет контейнер `db` **без сети**. Healthcheck
+при этом зелёный — `pg_isready` ходит через unix-сокет внутри контейнера,
+сеть ему не нужна. Встроенный DNS сети compose про `db` не знает и пересылает
+запрос во внешний DNS, отсюда именно `ENOTFOUND`, а не отказ соединения.
+
+Диагностика:
+
+```bash
+docker inspect max-dispatcher-db-1 --format '{{json .NetworkSettings.Networks}}'  # {} — сети нет
+sudo ss -ltnp 'sport = :5432'                                                      # кто держит порт
+```
+
+Явная ошибка `failed to bind host port 127.0.0.1:5432/tcp: address already in use`
+видна не всегда — при перезапуске контейнера демоном она уходит в журнал
+Docker, а не в вывод `compose`.
+
+Лечение — перенести наружный порт `db`, чужой Postgres не трогать:
+
+```bash
+sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env      # DATABASE_URL НЕ менять: там внутренний db:5432
+docker compose down --remove-orphans && docker compose up -d
+```
