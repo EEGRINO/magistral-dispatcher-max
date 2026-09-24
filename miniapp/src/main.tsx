@@ -3,6 +3,7 @@ import { MaxUI } from '@maxhub/max-ui';
 import '@maxhub/max-ui/dist/styles.css';
 import './app.css';
 import { App } from './App';
+import { LaunchDebug, isDebugLaunch } from './components/LaunchDebug';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -14,6 +15,13 @@ if (!container) {
 // переменные темы живут на этом же элементе.
 createRoot(container).render(
   <MaxUI resetBody className="app-root">
-    <App />
+    {/* ВРЕМЕННО: ?debug — экран проверки запуска, см. LaunchDebug. */}
+    {isDebugLaunch() ? (
+      <LaunchDebug>
+        <App />
+      </LaunchDebug>
+    ) : (
+      <App />
+    )}
   </MaxUI>,
 );

@@ -147,6 +147,8 @@ services:
       # Адрес api внутри сети compose: имя сервиса резолвится как хост.
       API_BASE_URL: http://api:${API_PORT:-3000}
       API_TIMEOUT_MS: ${API_TIMEOUT_MS:-5000}
+      # ВРЕМЕННО: кнопка-ссылка на мини-апп в меню, пока он не привязан к боту.
+      MINIAPP_TEST_URL: ${MINIAPP_TEST_URL:-}
 
     depends_on:
       api:

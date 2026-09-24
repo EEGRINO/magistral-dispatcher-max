@@ -42,6 +42,22 @@ function readPollTimeout(): number {
   return Math.floor(raw);
 }
 
+/**
+ * ВРЕМЕННО, до одобрения мини-аппа организаторами: адрес мини-аппа для
+ * обычной кнопки-ссылки в меню. Пусто — кнопки нет. Убрать вместе с кнопкой,
+ * когда заработает open_app.
+ */
+function readMiniappTestUrl(): string | null {
+  const raw = process.env.MINIAPP_TEST_URL?.trim();
+  if (!raw) {
+    return null;
+  }
+  if (!raw.startsWith('https://')) {
+    throw new Error(`MINIAPP_TEST_URL должен начинаться с https://, получено: ${raw}`);
+  }
+  return raw;
+}
+
 export const config = {
   token: readToken(),
 
@@ -63,6 +79,8 @@ export const config = {
   apiTimeoutMs: Number(process.env.API_TIMEOUT_MS ?? 5000),
 
   logLevel: process.env.LOG_LEVEL?.trim() || 'info',
+
+  miniappTestUrl: readMiniappTestUrl(),
 } as const;
 
 export const messages = {

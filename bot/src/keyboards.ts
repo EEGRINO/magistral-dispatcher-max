@@ -2,6 +2,7 @@
  * Клавиатуры бота. Клавиатура — вложение inline_keyboard, форма кнопок —
  * docs/max-notes.md, раздел «Inline-клавиатура».
  */
+import { config } from './config.js';
 import type { MaxAttachment } from './max-api.js';
 
 /** payload кнопок callback — по ним бот понимает, что нажато. */
@@ -31,10 +32,21 @@ function appRow(botUsername: string | null): Button[][] {
   return botUsername ? [[openAppButton(botUsername)]] : [];
 }
 
+/**
+ * ВРЕМЕННО: мини-апп обычной ссылкой, пока URL не привязан к боту и open_app
+ * открывать нечего. Страница откроется без данных входа MAX — это ожидаемо.
+ */
+function testAppRow(): Button[][] {
+  return config.miniappTestUrl
+    ? [[{ type: 'link', text: 'Мини-апп (тест)', url: config.miniappTestUrl }]]
+    : [];
+}
+
 export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard([
     [{ type: 'callback', text: 'Чат дома', payload: Action.houseChat }],
     ...appRow(botUsername),
+    ...testAppRow(),
   ]);
 }
 
