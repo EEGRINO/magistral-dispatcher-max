@@ -267,8 +267,14 @@ export const messages = {
 
   askType: 'Выберите, что случилось:',
 
-  askClarify: (type: 'leak' | 'electricity' | 'elevator'): string =>
-    ({ leak: 'Насколько всё серьёзно?', electricity: 'Что именно происходит?', elevator: 'Внутри кабины кто-то есть?' })[type],
+  askClarify: (type: 'leak' | 'electricity' | 'elevator' | 'blockage'): string =>
+    ({
+      leak: 'Насколько всё серьёзно?',
+      electricity: 'Что именно происходит?',
+      elevator: 'Внутри кабины кто-то есть?',
+      // TODO(Павел): черновик Игоря.
+      blockage: 'Что засорилось?',
+    })[type],
 
   askPlace: 'Уточните, где именно:',
 

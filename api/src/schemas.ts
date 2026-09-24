@@ -222,6 +222,10 @@ export const Ticket = Type.Object({
   problem_type: Type.String(),
   place: Nullable(Type.String()),
   description: Nullable(Type.String()),
+  /** Ответ жителя на уточнение после типа; null — уточнения не было. */
+  detail_code: Nullable(Type.String()),
+  /** Правило config/rules.yaml, по которому направлена заявка; null — заявка до маршрутизации. */
+  rule_id: Nullable(Type.String()),
   status: TicketStatus,
   assigned_organization_id: Nullable(Id),
   deadline_at: Nullable(Type.String({ format: 'date-time' })),
@@ -236,6 +240,8 @@ export const CreateTicketBody = Type.Object(
     place: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 200 }))),
     /** Своими словами жителя. Длинное сообщение MAX — до 4000 символов. */
     description: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 4000 }))),
+    /** Код ответа на уточнение — кнопка бота: riser, valve, chute, one_socket… */
+    detail_code: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
   },
   { additionalProperties: false },
 );
@@ -282,6 +288,8 @@ export interface TicketRow {
   problem_type: string;
   place: string | null;
   description: string | null;
+  detail_code: string | null;
+  rule_id: string | null;
   status: 'new' | 'in_progress' | 'resolved';
   assigned_organization_id: number | null;
   deadline_at: Date | null;
@@ -304,6 +312,8 @@ export const toTicketDto = (row: TicketRow): TicketDto => ({
   problem_type: row.problem_type,
   place: row.place,
   description: row.description,
+  detail_code: row.detail_code,
+  rule_id: row.rule_id,
   status: row.status,
   assigned_organization_id: row.assigned_organization_id,
   deadline_at: row.deadline_at ? row.deadline_at.toISOString() : null,

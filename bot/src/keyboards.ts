@@ -113,7 +113,7 @@ export function typeKeyboard(hasGas: boolean): MaxAttachment[] {
 }
 
 /** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */
-const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator', [string, string][]> = {
+const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator' | 'blockage', [string, string][]> = {
   leak: [
     ['🌊 Сильно течёт, заливает / может залить соседей', 'clar:severe'],
     ['💧 Капает или течёт умеренно', 'clar:moderate'],
@@ -126,6 +126,11 @@ const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator', [string, stri
   elevator: [
     ['🆘 Да, человек застрял', 'clar:trapped'],
     ['Нет, лифт просто не работает', 'clar:broken'],
+  ],
+  // TODO(Павел): подписи — черновик Игоря; в rules.yaml это blockage_sewage и blockage_chute.
+  blockage: [
+    ['🚽 Канализация: раковина, унитаз, стояк', 'clar:sewage'],
+    ['🗑️ Мусоропровод', 'clar:chute'],
   ],
 };
 

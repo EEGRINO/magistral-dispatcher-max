@@ -12,8 +12,9 @@ import { adminRoutes } from './routes/admin.js';
 import { healthRoutes } from './routes/health.js';
 import { residentRoutes } from './routes/residents.js';
 import { ticketRoutes } from './routes/tickets.js';
+import type { Rules } from './routing.js';
 
-export function buildApp(): FastifyInstance {
+export function buildApp({ rules }: { rules: Rules }): FastifyInstance {
   const app = Fastify({
     logger: { level: config.logLevel },
     // Логи пишет обратный прокси/compose, а не клиент: доверять
@@ -81,7 +82,7 @@ export function buildApp(): FastifyInstance {
 
   app.register(healthRoutes);
   app.register(residentRoutes);
-  app.register(ticketRoutes);
+  app.register(ticketRoutes, { rules });
   app.register(adminRoutes);
 
   return app;

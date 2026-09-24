@@ -77,6 +77,12 @@ services:
       PORT: ${API_PORT:-3000}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL не задан — заполни .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      RULES_PATH: /app/config/rules.yaml
+    volumes:
+      # Справочники (правила маршрутизации) — монтируются, а не вшиваются в
+      # образ: правка config/rules.yaml применяется перезапуском api
+      # (docker compose restart api), без пересборки. Только чтение.
+      - ./config:/app/config:ro
     ports:
       # 127.0.0.1: на VPS перед api стоит хостовой nginx (доступ по домену,
       # docs/RUN.md, раздел «Деплой на VPS»), прямой доступ снаружи не нужен

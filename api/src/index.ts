@@ -8,8 +8,13 @@ try {
   const { buildApp } = await import('./app.js');
   const { config } = await import('./config.js');
   const { pool } = await import('./db.js');
+  const { loadRules } = await import('./routing.js');
 
-  const app = buildApp();
+  // Правила — до старта: с битым rules.yaml api не поднимается (routing.ts).
+  const rules = loadRules(config.rulesPath);
+
+  const app = buildApp({ rules });
+  app.log.info({ rules: rules.rules.length, path: config.rulesPath }, 'правила маршрутизации загружены');
 
   // 0.0.0.0, а не localhost: внутри контейнера слушать только петлю —
   // значит быть недоступным и с хоста, и из других сервисов compose.

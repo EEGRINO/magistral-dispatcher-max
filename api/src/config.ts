@@ -30,4 +30,10 @@ export const config = {
   port: readPort(),
   databaseUrl: requireEnv('DATABASE_URL'),
   logLevel: process.env.LOG_LEVEL?.trim() || 'info',
+
+  /**
+   * Правила маршрутизации. В Docker папка config/ монтируется в /app/config
+   * (docker-compose.yml); локально api запускается из api/, отсюда ../config.
+   */
+  rulesPath: process.env.RULES_PATH?.trim() || '../config/rules.yaml',
 } as const;

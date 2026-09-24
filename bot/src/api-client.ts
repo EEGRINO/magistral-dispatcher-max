@@ -44,6 +44,8 @@ export interface Ticket {
   problem_type: string;
   place: string | null;
   description: string | null;
+  /** Правило config/rules.yaml, по которому api направил заявку. */
+  rule_id: string | null;
   status: 'new' | 'in_progress' | 'resolved';
   created_at: string;
 }
@@ -52,6 +54,8 @@ export interface NewTicket {
   problemType: string;
   place?: string | null;
   description?: string | null;
+  /** Ответ на уточнение — по нему api выбирает правило маршрутизации. */
+  detailCode?: string | null;
 }
 
 /** Итог привязки: либо житель, либо «такого номера у УК нет». */
@@ -225,6 +229,7 @@ export class ApiClient {
         problem_type: ticket.problemType,
         place: ticket.place ?? null,
         description: ticket.description ?? null,
+        detail_code: ticket.detailCode ?? null,
       },
       signal,
     );

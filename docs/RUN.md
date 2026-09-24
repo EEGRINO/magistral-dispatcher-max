@@ -130,6 +130,27 @@ docker compose run --rm migrate npm run seed
 контейнера `Up`/`healthy` — смотреть `docker compose logs bot`. Частая
 причина ошибок — TLS/сертификат, см. «Проблемы» ниже.
 
+## Правила маршрутизации
+
+Кому уходит заявка и какой у неё срок, api решает по
+[`config/rules.yaml`](../config/rules.yaml). Файл монтируется в контейнер api
+только для чтения, поэтому после правки достаточно перезапуска, без пересборки:
+
+```bash
+docker compose restart api
+docker compose logs api | grep "правила маршрутизации"   # сколько правил загружено
+```
+
+С ошибкой в файле api не стартует и называет правило и поле, например:
+`config/rules.yaml, правило heating_outage: responsible «rso_teplo» не из
+responsible_categories`.
+
+Проверить правила на тестах Павла (`docs/routing-test-cases.json`) — без Docker:
+
+```bash
+cd api && npm install && npm test
+```
+
 ## Дома и жители: команда УК
 
 **Следующий шаг после `docker compose up`.** Бот пускает только тех жителей,

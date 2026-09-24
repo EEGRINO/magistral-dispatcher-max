@@ -74,5 +74,11 @@ export interface ReportDraft {
   place?: Place;
   /** На экране зоны собственника — чьей. */
   ownerZone?: OwnerZone;
+  /**
+   * Ответ на уточнение — tickets.detail_code, по нему api выбирает правило
+   * (detail в config/rules.yaml): riser, valve, unknown, moderate, sewage,
+   * chute, outage, broken, owner_override.
+   */
+  detail?: string;
   description?: string | null;
 }

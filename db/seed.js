@@ -63,6 +63,17 @@ const HOUSES = [
   { address: 'г. Заречный, ул. Новая, д. 2', street: 'новая', number: '2', organization: 'ООО «УК Солнечная»', emergencyPhone: ADS_2, hasGas: false },
 ];
 
+/**
+ * РСО домов по ролям (houses.json Павла → rso). У всех восьми домов одни и те
+ * же водоканал, теплосеть и энергосбыт; газовая — только у домов с газом.
+ */
+const RSO = {
+  water: 'МУП «Водоканал»',
+  heat: 'АО «Теплосеть»',
+  electricity: 'ПАО «Энергосбыт»',
+  gas: 'АО «Газораспределение»',
+};
+
 /** Любой ввод → +7XXXXXXXXXX; null, если это не российский мобильный из 10 цифр. */
 function normalizePhone(raw) {
   const digits = raw.replace(/\D/g, '');
@@ -144,6 +155,22 @@ async function main() {
                emergency_phone = EXCLUDED.emergency_phone, has_gas = EXCLUDED.has_gas`,
         [house.address, house.street, house.number, house.organization, house.emergencyPhone, house.hasGas],
       );
+    }
+
+    // РСО дома — для маршрутизации: ответственный rso_* из config/rules.yaml.
+    for (const house of HOUSES) {
+      for (const [role, organization] of Object.entries(RSO)) {
+        if (role === 'gas' && !house.hasGas) continue;
+        await client.query(
+          `INSERT INTO house_organizations (house_id, role, organization_id)
+           VALUES (
+             (SELECT id FROM houses WHERE address = $1), $2,
+             (SELECT id FROM organizations WHERE name = $3)
+           )
+           ON CONFLICT (house_id, role) DO UPDATE SET organization_id = EXCLUDED.organization_id`,
+          [house.address, role, organization],
+        );
+      }
     }
 
     const firstHouse = HOUSES[0].address;

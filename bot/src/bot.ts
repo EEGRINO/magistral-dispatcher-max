@@ -325,6 +325,7 @@ const CLARIFY_ANSWERS = {
   leak: ['severe', 'moderate'],
   electricity: ['sparking', 'outage', 'one_socket'],
   elevator: ['trapped', 'broken'],
+  blockage: ['sewage', 'chute'],
 } as const;
 type ClarifyType = keyof typeof CLARIFY_ANSWERS;
 const isClarifyType = (type: string | undefined): type is ClarifyType => type !== undefined && type in CLARIFY_ANSWERS;
@@ -449,7 +450,12 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
   try {
     const ticket = await apiClient.createTicket(
       draft.residentId,
-      { problemType: draft.type, place: draft.place ?? null, description: draft.description ?? null },
+      {
+        problemType: draft.type,
+        place: draft.place ?? null,
+        description: draft.description ?? null,
+        detailCode: draft.detail ?? null,
+      },
       shutdown.signal,
     );
     log.info('заявка создана', {
@@ -457,6 +463,8 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
       ticket_id: ticket.id,
       type: draft.type,
       place: draft.place ?? null,
+      detail: draft.detail ?? null,
+      rule: ticket.rule_id,
       // Метрика пилота: «всё равно передать в УК» из зоны собственника.
       owner_zone_override: draft.ownerZone !== undefined,
     });
@@ -524,9 +532,17 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
       case 'one_socket':
         // Одна розетка при свете у соседей — внутриквартирная проводка.
         draft.place = 'in_apartment';
+        draft.detail = 'one_socket';
         await toOwnerZone(target, userId, draft, 'electricity');
         return;
-      default: // moderate, outage, broken
+      case 'chute':
+        // Мусоропровод — всегда в подъезде, место не спрашиваем.
+        draft.detail = 'chute';
+        draft.place = 'entrance';
+        await afterPlace(target, userId, draft);
+        return;
+      default: // moderate, outage, broken, sewage
+        draft.detail = value;
         await toPlace(target, userId, draft);
         return;
     }
@@ -543,11 +559,13 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
   // «Откуда течёт?» — протечка в квартире.
   if (kind === 'src' && draft.type === 'leak' && draft.place === 'in_apartment') {
     if (value === 'owner') {
+      draft.detail = 'owner';
       await toOwnerZone(target, userId, draft, 'leak');
       return;
     }
     if (value === 'riser' || value === 'valve' || value === 'unknown') {
       // «Не знаю / течёт с потолка» — в УК: по умолчанию в пользу жителя.
+      draft.detail = value;
       await goTo(target, userId, draft, 'description');
       return;
     }
@@ -565,6 +583,8 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
       // Ответ о границе мог быть ошибочным — не оставляем в тупике: обычная
       // заявка с теми же типом и местом (решение 24.09.2026).
       log.info('зона собственника — всё равно в УК', { resident_id: draft.residentId, zone: draft.ownerZone });
+      // Правило — ручная классификация (routing.ts, OWNER_OVERRIDE).
+      draft.detail = 'owner_override';
       await goTo(target, userId, draft, 'description');
       return;
     }
@@ -574,6 +594,7 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
       } else {
         // Течёт сам кран или он не перекрывается — это уже общее имущество.
         draft.ownerZone = undefined;
+        draft.detail = 'valve';
         await goTo(target, userId, draft, 'description');
       }
       return;
