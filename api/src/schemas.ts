@@ -13,6 +13,15 @@ import { Type, type Static, type TSchema } from '@sinclair/typebox';
 /** T или null — в JSON Schema это union, отдельного «nullable» там нет. */
 const Nullable = <T extends TSchema>(schema: T) => Type.Union([schema, Type.Null()]);
 
+/**
+ * T или null — для ВХОДНЫХ данных (тело запроса). Не anyOf, а nullable:
+ * Fastify проверяет вход с приведением типов (coerceTypes), и в anyOf
+ * [integer, null] ajv сначала пробует integer и превращает null в 0 —
+ * «стереть этаж» записало бы этаж 0. С nullable null принимается как есть.
+ */
+const NullableInput = <T extends TSchema>(schema: T) =>
+  Type.Unsafe<Static<T> | null>({ ...schema, nullable: true });
+
 /** Положительный целый идентификатор. */
 const Id = Type.Integer({ minimum: 1 });
 
@@ -106,6 +115,92 @@ export const HouseByAddressBody = Type.Object(
   { additionalProperties: false },
 );
 
+// ── УК: дома и жители (/admin, только изнутри сервера) ─────────────────
+//
+// Здесь телефон жителя отдаётся: это рабочий список УК, а не ответ жителю.
+
+const ChatLink = Type.String({ pattern: '^https://', maxLength: 2048 });
+const AddressText = Type.String({ minLength: 1, maxLength: 200 });
+
+export const AdminHouse = Type.Object({
+  id: Id,
+  address: Type.String(),
+  /** Нормализованные улица и номер — по ним житель находит дом вводом адреса. */
+  street: Nullable(Type.String()),
+  number: Nullable(Type.String()),
+  chat_link: Nullable(Type.String()),
+  /** Код для QR-ссылки https://max.ru/<бот>?start=<код>. */
+  invite_code: Type.String(),
+  /** Сколько жителей числится в доме, без архива. */
+  residents: Type.Integer({ minimum: 0 }),
+  created_at: Type.String({ format: 'date-time' }),
+});
+
+export const HouseListQuery = Type.Object(
+  { address: Type.Optional(AddressText) },
+  { additionalProperties: false },
+);
+
+export const CreateHouseBody = Type.Object(
+  { address: AddressText, chat_link: Type.Optional(NullableInput(ChatLink)) },
+  { additionalProperties: false },
+);
+
+export const UpdateHouseBody = Type.Object(
+  { address: Type.Optional(AddressText), chat_link: Type.Optional(NullableInput(ChatLink)) },
+  { additionalProperties: false, minProperties: 1 },
+);
+
+export const AdminHouseResponse = Type.Object({ house: AdminHouse });
+export const AdminHouseListResponse = Type.Object({ houses: Type.Array(AdminHouse) });
+
+export const AdminResident = Type.Object({
+  id: Id,
+  phone: Type.String(),
+  house_id: Nullable(Id),
+  house_address: Nullable(Type.String()),
+  entrance: Nullable(Type.Integer()),
+  floor: Nullable(Type.Integer()),
+  apartment: Nullable(Type.String()),
+  contract_number: Nullable(Type.String()),
+  /** Житель уже вошёл в бота. Сам id MAX УК не нужен. */
+  max_linked: Type.Boolean(),
+  archived_at: Nullable(Type.String({ format: 'date-time' })),
+  created_at: Type.String({ format: 'date-time' }),
+  updated_at: Type.String({ format: 'date-time' }),
+});
+
+/** Поля «где живёт». null — стереть значение; поле не передано — не менять. */
+const ResidentPlace = {
+  house_id: Type.Optional(NullableInput(Id)),
+  entrance: Type.Optional(NullableInput(Type.Integer({ minimum: 1, maximum: 100 }))),
+  floor: Type.Optional(NullableInput(Type.Integer({ minimum: -5, maximum: 200 }))),
+  apartment: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 16 }))),
+  contract_number: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64 }))),
+};
+
+export const ResidentListQuery = Type.Object(
+  {
+    house_id: Type.Optional(Id),
+    phone: Type.Optional(Phone),
+    include_archived: Type.Optional(Type.Boolean({ default: false })),
+  },
+  { additionalProperties: false },
+);
+
+export const CreateResidentBody = Type.Object(
+  { phone: Phone, ...ResidentPlace },
+  { additionalProperties: false },
+);
+
+export const UpdateResidentBody = Type.Object(
+  { phone: Type.Optional(Phone), ...ResidentPlace },
+  { additionalProperties: false, minProperties: 1 },
+);
+
+export const AdminResidentResponse = Type.Object({ resident: AdminResident });
+export const AdminResidentListResponse = Type.Object({ residents: Type.Array(AdminResident) });
+
 // ── Заявка ─────────────────────────────────────────────────────────────
 
 export const TicketStatus = Type.Union([
@@ -131,7 +226,7 @@ export const CreateTicketBody = Type.Object(
   {
     resident_id: Id,
     problem_type: Type.String({ minLength: 1, maxLength: 200 }),
-    place: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: 200 }))),
+    place: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 200 }))),
   },
   { additionalProperties: false },
 );

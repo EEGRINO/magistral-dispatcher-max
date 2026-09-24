@@ -130,6 +130,44 @@ docker compose run --rm migrate npm run seed
 контейнера `Up`/`healthy` — смотреть `docker compose logs bot`. Частая
 причина ошибок — TLS/сертификат, см. «Проблемы» ниже.
 
+## Дома и жители: команда УК
+
+Заводить, править и убирать жителей и дома — командой в контейнере `api`, а не
+SQL руками: она проверяет формат телефона, разбирает адрес так же, как бот, а
+вместо удаления убирает жителя в архив — заявки остаются. Без аргументов
+печатает справку.
+
+```bash
+alias uk='docker compose exec api node dist/cli.js'   # для краткости
+
+uk houses list
+uk houses add --address "ул. Новая, д. 7 к 2" --chat https://max.ru/join/…
+uk houses edit 4 --chat -                              # «-» — убрать значение
+
+uk residents list --house 4
+uk residents add --phone "8 999 000-00-00" --address "Новая 7к2" \
+                 --entrance 2 --floor 5 --apartment 45А --contract Д-123
+uk residents edit 12 --apartment 46 --floor -
+uk residents edit 12 --phone +79990000001    # снимает привязку к MAX
+uk residents archive 12                      # вместо удаления
+```
+
+Список жителей из Excel: сохранить как CSV (подойдёт и «CSV UTF-8», и обычный —
+Windows-1251), первая строка — заголовки `телефон;адрес;подъезд;этаж;квартира;договор`
+(обязательны первые два). Сначала проверка, потом запись:
+
+```bash
+docker compose exec -T api node dist/cli.js residents import - --dry-run < жители.csv
+docker compose exec -T api node dist/cli.js residents import - < жители.csv
+```
+
+`-T` обязателен: без него docker не передаст файл на вход команде. Дома из
+файла должны быть заведены заранее. Ошибки выводятся по номеру строки файла —
+номера телефонов в отчёт не попадают.
+
+Сама команда ходит в маршруты `/admin/*` api — контракт в
+[`api.md`](api.md), «Дома и жители — для УК». Снаружи они закрыты.
+
 ## Остановка
 
 ```bash

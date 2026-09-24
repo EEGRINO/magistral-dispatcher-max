@@ -8,6 +8,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from './config.js';
 import { ApiError, mapPgError } from './errors.js';
+import { adminRoutes } from './routes/admin.js';
 import { healthRoutes } from './routes/health.js';
 import { residentRoutes } from './routes/residents.js';
 import { ticketRoutes } from './routes/tickets.js';
@@ -81,6 +82,7 @@ export function buildApp(): FastifyInstance {
   app.register(healthRoutes);
   app.register(residentRoutes);
   app.register(ticketRoutes);
+  app.register(adminRoutes);
 
   return app;
 }

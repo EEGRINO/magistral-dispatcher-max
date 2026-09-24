@@ -134,7 +134,7 @@ async function main() {
       await client.query(
         `INSERT INTO residents (phone, house_id)
          VALUES ($1, (SELECT id FROM houses WHERE address = $2))
-         ON CONFLICT (phone) DO NOTHING`,
+         ON CONFLICT (phone) WHERE archived_at IS NULL DO NOTHING`,
         [phone, firstHouse],
       );
     }

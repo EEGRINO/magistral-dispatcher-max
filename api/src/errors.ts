@@ -35,7 +35,11 @@ export const houseNotFound = (message: string): ApiError => new ApiError(404, 'h
 export const addressUnrecognized = (): ApiError =>
   new ApiError(400, 'address_unrecognized', 'Не удалось выделить улицу и номер дома');
 
-export const invalidReference = (message: string): ApiError =>
+/** Жителя из архива не редактируют: номер заводится заново новой записью. */
+export const residentArchived = (): ApiError =>
+  new ApiError(409, 'resident_archived', 'Житель в архиве — изменения запрещены');
+
+export const invalidReference =(message: string): ApiError =>
   new ApiError(400, 'invalid_reference', message);
 
 /** Минимум полей ошибки node-postgres, который нам нужен. */
