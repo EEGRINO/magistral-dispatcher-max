@@ -23,10 +23,17 @@ export interface MaxRecipient {
   user_id?: number;
 }
 
+/** Вложение сообщения. Форма payload зависит от type — см. docs/max-notes.md. */
+export interface MaxAttachment {
+  type: string;
+  payload?: unknown;
+}
+
 export interface MaxMessageBody {
   mid: string;
   seq: number;
   text?: string;
+  attachments?: MaxAttachment[];
 }
 
 export interface MaxMessage {
@@ -145,15 +152,23 @@ export class MaxApi {
     );
   }
 
-  /** Адресат задаётся query-параметром, текст — телом запроса. */
-  async sendMessage(target: SendTarget, text: string, signal?: AbortSignal): Promise<void> {
+  /**
+   * Адресат задаётся query-параметром, текст — телом запроса.
+   * Клавиатура — это тоже вложение (type: "inline_keyboard"), отдельного поля нет.
+   */
+  async sendMessage(
+    target: SendTarget,
+    text: string,
+    signal?: AbortSignal,
+    attachments?: MaxAttachment[],
+  ): Promise<void> {
     const trimmed = text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH - 1)}…` : text;
 
     await this.request<unknown>(
       'POST',
       '/messages',
       { chat_id: target.chatId, user_id: target.userId },
-      { text: trimmed, notify: true },
+      { text: trimmed, notify: true, ...(attachments ? { attachments } : {}) },
       signal,
     );
   }

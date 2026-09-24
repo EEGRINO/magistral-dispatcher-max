@@ -10,6 +10,12 @@
  */
 import { ApiClient } from './api-client.js';
 import { config, messages } from './config.js';
+import {
+  describeContact,
+  findContact,
+  requestContactKeyboard,
+  TEST_CONTACT_COMMAND,
+} from './contact-test.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxUpdate, type SendTarget } from './max-api.js';
 
@@ -117,10 +123,31 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
         return;
       }
 
+      // ВРЕМЕННО (П4): контакт приходит сообщением без текста — ловим его до
+      // проверки текста, иначе ответом был бы «понимаю только текст».
+      const contact = findContact(update.message);
+      if (contact) {
+        // Номер в лог не пишем: это персональные данные.
+        log.info('получен контакт (тест П4)', { target, has_hash: typeof contact.hash === 'string' });
+        await api.sendMessage(target, describeContact(contact, sender?.user_id), shutdown.signal);
+        return;
+      }
+
       const text = update.message?.body?.text?.trim();
 
       if (!text) {
         await api.sendMessage(target, messages.nonText, shutdown.signal);
+        return;
+      }
+
+      if (text === TEST_CONTACT_COMMAND) {
+        log.info('тест кнопки контакта', { target });
+        await api.sendMessage(
+          target,
+          'Проверка кнопки контакта: нажмите её. Бот покажет, что пришло.',
+          shutdown.signal,
+          requestContactKeyboard,
+        );
         return;
       }
 
