@@ -230,25 +230,38 @@ API_PORT="$(sed -n 's|^API_PORT=||p' /opt/max-dispatcher/.env | tail -n1)"
 API_PORT="${API_PORT:-3000}"
 ```
 
-`/etc/nginx/sites-available/api.ВАШ-ДОМЕН`:
+> ⚠️ **Наружу — только явно перечисленные пути, всё остальное — `404`.**
+> Не `location / { proxy_pass … }` на весь api: 24.09.2026 именно так наружу
+> оказался открыт внутренний `POST /residents/link-by-phone`, через который можно
+> было привязать к себе чужую квартиру. Эндпоинты для бота живут только в сети
+> compose; api дополнительно сам отвечает 404 на `/residents/*` через прокси
+> (`docs/api.md`), но это вторая линия, а не повод открывать всё.
+
+`/etc/nginx/sites-available/api.ВАШ-ДОМЕН` — наружу только `/health`:
 
 ```nginx
 server {
     listen 80;
     server_name api.ВАШ-ДОМЕН;
-    location / {
+
+    location = /health {
         proxy_pass http://127.0.0.1:PORT;   # подставить $API_PORT
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    location / {
+        return 404;
+    }
 }
 ```
 
-`/etc/nginx/sites-available/miniapp.ВАШ-ДОМЕН` — статика плюс проксирование
-api под тем же origin (мини-апп ходит на `/api/...` same-origin, CORS в
-`api` поэтому не заведён — `miniapp/src/api.ts`, TODO на `GET/POST /api/tickets`):
+`/etc/nginx/sites-available/miniapp.ВАШ-ДОМЕН` — статика плюс те маршруты api,
+которые нужны мини-аппу, под тем же origin (мини-апп ходит на `/api/...`
+same-origin, поэтому CORS в `api` не заведён). Каждый маршрут — отдельным
+`location`; сейчас это только `/api/health`:
 
 ```nginx
 server {
@@ -263,14 +276,17 @@ server {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-cache";
     }
-    # Завершающий слэш у proxy_pass срезает префикс /api/ — маршруты api
-    # живут без него (docs/api.md): /api/health → http://127.0.0.1:PORT/health
-    location /api/ {
-        proxy_pass http://127.0.0.1:PORT/;   # подставить $API_PORT
+    # proxy_pass с путём заменяет совпавшую часть: /api/health → /health
+    location = /api/health {
+        proxy_pass http://127.0.0.1:PORT/health;   # подставить $API_PORT
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # Отдельный блок: иначе try_files отдал бы на неизвестный /api/... index.html с 200
+    location /api/ {
+        return 404;
     }
 }
 ```
