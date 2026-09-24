@@ -1,0 +1,271 @@
+meta:
+  description: >
+    Черновик таблицы маршрутизации «тип проблемы × место → ответственный + срок + источник».
+    MVP хакатона «Умный город», команда «Магистраль».
+  verified_at: "2026-09-23"
+  status: draft-sverka-done
+  note: >
+    Сверка сроков (Д-9, 21.09) проведена по вторичным источникам (агрегаторы юридических текстов,
+    отраслевые статьи), не по сканам самих постановлений — полный разбор см. в
+    docs/normative-deadlines.md. На Д-8 (23.09) дополнительно зафиксирована граница «зоны
+    собственника» по ПП №491, п.5 (общее имущество — до первого отключающего устройства
+    включительно; личное — всё после), закрыты пробелы, найденные при составлении тест-кейсов
+    (docs/routing-test-cases.json): электрика теперь тоже имеет owner-правило, добавлено
+    правило для засора на придомовой территории, зафиксирована политика для неизвестного типа
+    и для газа в доме без газоснабжения. Часть пунктов всё ещё приоритетно стоит перепроверить
+    по первоисточнику вручную перед сдачей — таково правило команды («правило первоисточника»).
+  primary_sources:
+    - "ПП РФ №416 от 15.05.2013 (в редакции с учётом Постановления №331 от 2019 — новые правила работы АДС)"
+    - "ПП РФ №354 от 06.05.2011, приложение №1 (допустимая продолжительность перерывов и температурные нормы)"
+    - "ПП РФ №491 от 13.08.2006, п.5 (состав общего имущества — граница ответственности УК/собственника по первому отключающему устройству)"
+    - "Постановление Госстроя РФ №170 от 27.09.2003, приложение №2 (предельные сроки устранения неисправностей) — не первоисточник по 416/354/491, но используется на практике как ориентир"
+    - "ГОСТ Р 55964-2014, п. 7.4.3 (эвакуация людей из остановившейся кабины лифта)"
+  see_also: "docs/normative-deadlines.md — полная сверка сроков; docs/routing-test-cases.json — тест-кейсы; docs/danger-types-spec.md — экстренная ветка"
+
+# Правила (rules[].id), которые всегда уходят в экстренную ветку ДО создания обычной заявки
+danger_types:
+  - gas_smell
+  - exposed_wiring
+  - flooding_threat
+  - elevator_entrapment
+
+# Политика resolve() при типе, которого нет в списке правил (защитный случай, из UI такое не должно приходить)
+fallback_policy:
+  unknown_type: "маршрутизировать как other_unsure (ручная классификация диспетчером) + WARN в лог с исходным значением типа; НЕ падать и НЕ создавать правило на лету"
+  gas_without_supply: >
+    Если тип=gas выбран для дома, у которого houses.json.rso.gas = null — resolve() возвращает
+    явную ошибку валидации («у дома нет газоснабжения»), а не тихо матчит gas_smell. Продуктовое
+    решение (Павел, 23.09): бот вообще не должен предлагать кнопку/сценарий «Газ» для домов без
+    газоснабжения — это read из houses.json на этапе показа вопроса «Что случилось?» в боте (этап 3
+    Игоря). До этого резервно работает ошибка валидации в resolve().
+
+# Категории ответственных (реальная организация подставляется из houses.json по house_id)
+responsible_categories:
+  - management_company   # УК/ТСЖ дома
+  - rso_water
+  - rso_heat
+  - rso_electricity
+  - rso_gas
+  - gas_emergency_service # отдельная городская служба (обычно 104), не АДС дома
+  - owner                 # зона собственника — заявка в УК не создаётся
+
+rules:
+  - id: leak_common
+    type: leak
+    place: [in_apartment, entrance, whole_house]
+    description: "Протечка/потоп — из стояка, отвода до первого отключающего устройства, кровли или иных общедомовых труб"
+    responsible: management_company
+    danger: false
+    deadline:
+      localize: "30 минут"
+      fix: "не более 24 часов, если это аварийная ситуация; до 3 суток — полное устранение аварийного повреждения инженерных систем"
+    source: "ПП РФ №416 (ред. с учётом Постановления №331 от 2019), ПП РФ №354"
+    source_status: "нужна сверка точных пунктов — см. open_questions"
+    owner_zone_possible: true
+    owner_zone_note: >
+      Граница по ПП №491, п.5: общее имущество — стояк и отвод от него ВКЛЮЧАЯ первое
+      отключающее устройство (вентиль). Всё, что физически ПОСЛЕ этого вентиля
+      (разводка по квартире, смеситель, гибкая подводка, сантехоборудование) — личное
+      имущество собственника, см. leak_owner_equipment.
+
+  - id: leak_shutoff_valve
+    type: leak
+    place: [in_apartment]
+    description: "Течь именно в первом отключающем устройстве (вентиле) на отводе от стояка"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "1 сутки"
+    source: "Постановление Госстроя №170, приложение №2; граница по ПП №491, п.5"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+    note: "Сам вентиль — общее имущество (это точка границы), поэтому это НЕ зона собственника, в отличие от всего, что после него"
+
+  - id: leak_owner_equipment
+    type: leak
+    place: [in_apartment]
+    description: "Протечка из личного оборудования собственника: смеситель, гибкая подводка, сантехника, разводка ПОСЛЕ первого отключающего устройства"
+    responsible: owner
+    danger: false
+    deadline: null
+    source: "ПП РФ №491, п.5 — личное имущество собственника"
+    owner_zone: true
+    note: "Ветка зоны собственника: инструкция, заявка в УК не создаётся"
+
+  - id: flooding_threat
+    type: leak
+    place: [in_apartment, entrance, whole_house]
+    description: "Угроза затопления (прорыв, сильный напор воды)"
+    responsible: management_company
+    danger: true
+    deadline:
+      fix: "немедленно — экстренная ветка"
+    source: "ПП РФ №416/354 — общая норма об аварийных ситуациях"
+
+  - id: blockage_sewage
+    type: blockage
+    place: [in_apartment, entrance, whole_house, yard]
+    description: "Засор внутридомовой канализации или ливневой канализации/дренажа на придомовой территории"
+    responsible: management_company
+    danger: false
+    deadline:
+      localize: "2 часа"
+    source: "ПП РФ №416 (поправки Постановления №331 от 2019)"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+
+  - id: blockage_chute
+    type: blockage
+    place: [entrance]
+    description: "Засор мусоропровода"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "2 часа (в интервале 8:00–23:00)"
+    source: "ПП РФ №416 (поправки Постановления №331 от 2019)"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+
+  - id: heating_outage
+    type: heating
+    place: [in_apartment, whole_house]
+    description: "Отсутствие/понижение температуры отопления ниже норматива"
+    responsible: rso_heat
+    danger: false
+    deadline:
+      localize: "30 минут"
+      fix: "до 3 суток на полное устранение аварийного повреждения"
+    norm:
+      min_temperature: "+18 °C (в угловых комнатах +20 °C); в регионах с холодной пятидневкой ≤ −31 °C — +20 °C (+22 °C в угловых)"
+      allowed_excess: "не более +4 °C сверх нормы"
+      allowed_night_drop: "не более −3 °C в интервале 00:00–05:00"
+      allowed_day_drop: "не допускается в интервале 05:00–24:00"
+    source: "ПП РФ №354, приложение №1, раздел «Отопление» (актуальная редакция от 19.12.2025)"
+    source_status: "средняя-высокая уверенность, см. docs/normative-deadlines.md"
+    owner_zone_possible: true
+    owner_zone_note: >
+      Граница по ПП №491, п.5: стояк отопления и запорно-регулирующая арматура на нём —
+      общее имущество. Сам отопительный прибор (радиатор) и отвод от стояка ПОСЛЕ
+      арматуры — личное имущество собственника. Для MVP не выносим в отдельный тип
+      в боте (риск запутать жителя формулировкой), но диспетчер должен это учитывать
+      при разборе категории «не уверен».
+
+  - id: electricity_outage
+    type: electricity
+    place: [in_apartment, entrance, whole_house]
+    description: "Отключение/перебои электроснабжения общедомовых сетей"
+    responsible: rso_electricity
+    danger: false
+    deadline:
+      localize: "30 минут (ПП №416, ред. №331)"
+      fix: "до 2 часов — повреждение кабелей/отключение питания стояка; 3 часа — неисправность вводно-распределительного устройства; немедленно — аварийная неисправность (Постановление №170, приложение №2)"
+    source: "ПП РФ №416/354; Постановление Госстроя №170, приложение №2"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+    owner_zone_possible: true
+    owner_zone_note: >
+      Граница по ПП №491, п.5: внутридомовая система электроснабжения ДО отключающего
+      устройства в квартирном щитке — общее имущество. Розетки, внутриквартирная проводка
+      и приборы ПОСЛЕ отключающего устройства (автомата) в щитке — личное имущество
+      собственника, см. electricity_owner_equipment.
+
+  - id: electricity_owner_equipment
+    type: electricity
+    place: [in_apartment]
+    description: "Неисправность розетки/проводки/прибора внутри квартиры ПОСЛЕ автомата в квартирном щитке (у соседей свет есть)"
+    responsible: owner
+    danger: false
+    deadline: null
+    source: "ПП РФ №491, п.5 — личное имущество собственника"
+    owner_zone: true
+    note: "Ветка зоны собственника: инструкция, заявка в УК не создаётся (кроме случая exposed_wiring — искрящая проводка всегда экстренная ветка, даже если формально в зоне собственника)"
+
+  - id: exposed_wiring
+    type: electricity
+    place: [in_apartment, entrance, whole_house]
+    description: "Искрящая/оголённая проводка"
+    responsible: management_company
+    danger: true
+    deadline:
+      fix: "немедленно — экстренная ветка, до создания обычной заявки показываются номера служб"
+
+  - id: elevator_stuck
+    type: elevator
+    place: [entrance]
+    description: "Неисправность/остановка лифта (без человека внутри)"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "не более 1 суток"
+    source: "Постановление Госстроя №170, приложение №2"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+
+  - id: elevator_entrapment
+    type: elevator
+    place: [entrance]
+    description: "Человек застрял в остановившейся кабине лифта"
+    responsible: management_company
+    danger: true
+    deadline:
+      fix: "не более 30 минут с момента поступления сигнала в аварийную службу"
+    source: "ГОСТ Р 55964-2014, п. 7.4.3"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+    note: "Экстренная ветка — отдельный кейс от обычной неисправности лифта, выше по приоритету"
+
+  - id: gas_smell
+    type: gas
+    place: [in_apartment, entrance, whole_house, street]
+    description: "Запах газа"
+    responsible: gas_emergency_service
+    danger: true
+    deadline:
+      fix: "немедленно — экстренная ветка, звонок в газовую аварийную службу (обычно 104); обычная заявка не создаётся до завершения экстренной коммуникации"
+    note: "Отдельная городская аварийная газовая служба, не АДС дома"
+
+  - id: common_area_issue
+    type: common_area
+    place: [entrance, yard]
+    description: "Подъезд/двор: освещение, уборка, вывоз мусора"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "до 5 рабочих дней (мелкая неисправность, согласовывается с заявителем)"
+    source_status: "обобщённая практика, не привязано к конкретному пункту — TODO"
+
+  - id: structural_issue
+    type: structural
+    place: [in_apartment, entrance, whole_house]
+    description: "Окна/двери/кровля вне аварийной ситуации"
+    responsible: management_company
+    danger: false
+    deadline:
+      roof_leak: "1 сутки (локальная протечка); 5 суток — повреждение системы водоотвода"
+      broken_glass: "1 сутки зимой; 3 суток летом"
+      entrance_door: "1 сутки"
+    source: "Постановление Госстроя №170, приложение №2"
+    source_status: "средняя уверенность, см. docs/normative-deadlines.md"
+    note: "Протечка кровли также дублируется как leak_common (аварийная ветка, 30 минут локализация)"
+
+  - id: pests
+    type: pests
+    place: [in_apartment, entrance, whole_house]
+    description: "Насекомые/грызуны в местах общего пользования"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "срок согласовывается индивидуально — норматив по 416/354/491 не найден, TODO"
+
+  - id: other_unsure
+    type: other
+    place: [in_apartment, entrance, whole_house, street]
+    description: "Другое / не уверен"
+    responsible: management_company
+    routing: manual
+    danger: false
+    note: "Уходит диспетчеру на ручную классификацию (этап 5 плана); после классификации житель получает уточнённого ответственного"
+
+open_questions:
+  - "Газ: срок реагирования отдельной аварийной газовой службы (не АДС дома) не найден при сверке 21.09 — для MVP не блокер (экстренная ветка без указания срока), но не называть цифру в презентации/README, пока не проверено."
+  - "Вредители: нормативного срока по 416/354/491/170 нет — регулируется договором управления, оставлено как «согласовывается индивидуально»."
+  - "Все пункты с source_status: 'средняя уверенность' (см. docs/normative-deadlines.md) — перед мерджем в основную ветку по возможности сверить с оригиналом постановления, приоритет см. в том файле."
+  - "heating_outage.owner_zone_possible (радиатор — личное имущество после арматуры) сознательно не вынесено в отдельную кнопку бота, чтобы не путать жителя — решение принято 23.09, но стоит проговорить с командой на синке, не потеряется ли эта тонкость для диспетчера."
+
+# Закрыто на Д-8 (23.09): точная граница «зоны собственника» — см. leak_owner_equipment,
+# electricity_owner_equipment, leak_shutoff_valve и owner_zone_note у leak_common/electricity_outage/heating_outage.
+# Источник — ПП №491, п.5.
