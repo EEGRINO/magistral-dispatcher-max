@@ -22,6 +22,21 @@ meta:
     - "ГОСТ Р 55964-2014, п. 7.4.3 (эвакуация людей из остановившейся кабины лифта)"
   see_also: "docs/normative-deadlines.md — полная сверка сроков; docs/routing-test-cases.json — тест-кейсы; docs/danger-types-spec.md — экстренная ветка"
 
+# ── Поля для маршрутизации в api (добавлены 24.09.2026, Игорь) — ЧЕРНОВИК, Павлу на сверку ──
+#
+# detail — ответ жителя на уточнение после типа (tickets.detail_code). Правило с
+#   detail подходит, только если ответ жителя есть в списке; правило без detail —
+#   общее для своего типа и места. Если подошли оба, выбирается правило с detail.
+#   Коды ответов — кнопки бота: valve / owner / severe (протечка), chute
+#   (мусоропровод), one_socket / sparking (электричество), trapped (лифт).
+# deadline_hours — нормативный срок в часах для tickets.deadline_at и «осталось».
+#   Взят из текста deadline этого же правила без новых источников (комментарий у
+#   каждого правила). null — числа нет или срок зависит от обстоятельств. Цифры —
+#   с той же «средней уверенностью», что и текст (docs/normative-deadlines.md).
+#
+# Место «двор»: в правилах yard, бот шлёт street — api считает их одним местом,
+# пока не выбрано одно имя.
+
 # Правила (rules[].id), которые всегда уходят в экстренную ветку ДО создания обычной заявки
 danger_types:
   - gas_smell
@@ -52,6 +67,7 @@ responsible_categories:
 rules:
   - id: leak_common
     type: leak
+    deadline_hours: 24  # ЧЕРНОВИК (Игорь, 24.09) — fix: «не более 24 часов, если это аварийная ситуация»
     place: [in_apartment, entrance, whole_house]
     description: "Протечка/потоп — из стояка, отвода до первого отключающего устройства, кровли или иных общедомовых труб"
     responsible: management_company
@@ -70,6 +86,8 @@ rules:
 
   - id: leak_shutoff_valve
     type: leak
+    detail: [valve]
+    deadline_hours: 24  # ЧЕРНОВИК (Игорь, 24.09) — fix: «1 сутки»
     place: [in_apartment]
     description: "Течь именно в первом отключающем устройстве (вентиле) на отводе от стояка"
     responsible: management_company
@@ -82,6 +100,8 @@ rules:
 
   - id: leak_owner_equipment
     type: leak
+    detail: [owner]
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — deadline: null — зона собственника
     place: [in_apartment]
     description: "Протечка из личного оборудования собственника: смеситель, гибкая подводка, сантехника, разводка ПОСЛЕ первого отключающего устройства"
     responsible: owner
@@ -93,6 +113,8 @@ rules:
 
   - id: flooding_threat
     type: leak
+    detail: [severe]
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — fix: «немедленно» — числа нет
     place: [in_apartment, entrance, whole_house]
     description: "Угроза затопления (прорыв, сильный напор воды)"
     responsible: management_company
@@ -103,6 +125,7 @@ rules:
 
   - id: blockage_sewage
     type: blockage
+    deadline_hours: 2  # ЧЕРНОВИК (Игорь, 24.09) — localize: «2 часа» (срока fix нет)
     place: [in_apartment, entrance, whole_house, yard]
     description: "Засор внутридомовой канализации или ливневой канализации/дренажа на придомовой территории"
     responsible: management_company
@@ -114,6 +137,8 @@ rules:
 
   - id: blockage_chute
     type: blockage
+    detail: [chute]
+    deadline_hours: 2  # ЧЕРНОВИК (Игорь, 24.09) — fix: «2 часа (в интервале 8:00–23:00)»
     place: [entrance]
     description: "Засор мусоропровода"
     responsible: management_company
@@ -125,6 +150,7 @@ rules:
 
   - id: heating_outage
     type: heating
+    deadline_hours: 72  # ЧЕРНОВИК (Игорь, 24.09) — fix: «до 3 суток на полное устранение»
     place: [in_apartment, whole_house]
     description: "Отсутствие/понижение температуры отопления ниже норматива"
     responsible: rso_heat
@@ -149,6 +175,7 @@ rules:
 
   - id: electricity_outage
     type: electricity
+    deadline_hours: 2  # ЧЕРНОВИК (Игорь, 24.09) — fix: «до 2 часов — повреждение кабелей/отключение питания стояка»
     place: [in_apartment, entrance, whole_house]
     description: "Отключение/перебои электроснабжения общедомовых сетей"
     responsible: rso_electricity
@@ -167,6 +194,8 @@ rules:
 
   - id: electricity_owner_equipment
     type: electricity
+    detail: [one_socket]
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — deadline: null — зона собственника
     place: [in_apartment]
     description: "Неисправность розетки/проводки/прибора внутри квартиры ПОСЛЕ автомата в квартирном щитке (у соседей свет есть)"
     responsible: owner
@@ -178,6 +207,8 @@ rules:
 
   - id: exposed_wiring
     type: electricity
+    detail: [sparking]
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — fix: «немедленно» — числа нет
     place: [in_apartment, entrance, whole_house]
     description: "Искрящая/оголённая проводка"
     responsible: management_company
@@ -187,6 +218,7 @@ rules:
 
   - id: elevator_stuck
     type: elevator
+    deadline_hours: 24  # ЧЕРНОВИК (Игорь, 24.09) — fix: «не более 1 суток»
     place: [entrance]
     description: "Неисправность/остановка лифта (без человека внутри)"
     responsible: management_company
@@ -198,6 +230,8 @@ rules:
 
   - id: elevator_entrapment
     type: elevator
+    detail: [trapped]
+    deadline_hours: 0.5  # ЧЕРНОВИК (Игорь, 24.09) — fix: «не более 30 минут»
     place: [entrance]
     description: "Человек застрял в остановившейся кабине лифта"
     responsible: management_company
@@ -210,6 +244,7 @@ rules:
 
   - id: gas_smell
     type: gas
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — fix: «немедленно» — числа нет
     place: [in_apartment, entrance, whole_house, street]
     description: "Запах газа"
     responsible: gas_emergency_service
@@ -220,6 +255,7 @@ rules:
 
   - id: common_area_issue
     type: common_area
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — fix: «до 5 рабочих дней» — рабочие дни в часы не переводим
     place: [entrance, yard]
     description: "Подъезд/двор: освещение, уборка, вывоз мусора"
     responsible: management_company
@@ -230,6 +266,7 @@ rules:
 
   - id: structural_issue
     type: structural
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — срок зависит от вида и сезона (roof_leak / broken_glass / entrance_door)
     place: [in_apartment, entrance, whole_house]
     description: "Окна/двери/кровля вне аварийной ситуации"
     responsible: management_company
@@ -244,6 +281,7 @@ rules:
 
   - id: pests
     type: pests
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — срок «согласовывается индивидуально»
     place: [in_apartment, entrance, whole_house]
     description: "Насекомые/грызуны в местах общего пользования"
     responsible: management_company
@@ -253,6 +291,7 @@ rules:
 
   - id: other_unsure
     type: other
+    deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — ручная классификация — срока нет
     place: [in_apartment, entrance, whole_house, street]
     description: "Другое / не уверен"
     responsible: management_company
