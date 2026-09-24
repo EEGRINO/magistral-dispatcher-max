@@ -3,8 +3,10 @@
 Сервис `api` диспетчера обращений. Документ описывает **реально работающие**
 эндпоинты, а не план: всё перечисленное ниже проверено запросами.
 
-Версия контракта: **0.5 от 24.09.2026** — у заявки поле `description`; `/tickets` —
-только изнутри сервера (снаружи 404); изменение не ломающее. 0.4 — 24.09.2026
+Версия контракта: **0.6 от 24.09.2026** — у `House` поля `emergency_phone`, `has_gas`,
+`uk_name` (не ломающее); коды `problem_type` / `place` бота — по `config/rules.yaml`
+(см. «Коды заявок»). 0.5 — 24.09.2026 (у заявки `description`; `/tickets` только
+изнутри сервера). 0.4 — 24.09.2026
 (маршруты УК `/admin/*`, архив жителей). 0.3 — 24.09.2026 (дом жителя, `/residents/:id/house…`). 0.2 — 24.09.2026 (вход по
 телефону, ломающее, см. ниже); 0.1 — 21.09.2026 (Д-9, КТ-1).
 
@@ -227,7 +229,8 @@
 **Ответ 200:**
 
 ```json
-{ "house": { "id": 1, "address": "…", "chat_link": "https://…" }, "mismatch": false }
+{ "house": { "id": 1, "address": "…", "chat_link": "https://…", "emergency_phone": "+7 900 111-00-01",
+             "has_gas": true, "uk_name": "ООО «УК Маяк»" }, "mismatch": false }
 ```
 
 `house` — дом жителя **после** операции. `mismatch: true` — у жителя по данным УК
@@ -259,6 +262,9 @@
 | `id` | number | нет | идентификатор дома |
 | `address` | string | нет | человекочитаемый адрес — его показывает бот |
 | `chat_link` | string | да | ссылка на чат дома; `null` — УК чат не завела |
+| `emergency_phone` | string | да | телефон АДС дома для экстренных инструкций; `null` — бот называет 112 |
+| `has_gas` | boolean | нет | `false` — в доме нет газа, бот не предлагает «Запах газа» |
+| `uk_name` | string | да | название УК/ТСЖ дома — «оформлю срочную заявку в …» |
 
 ---
 
@@ -420,14 +426,20 @@
 **Ошибки:** `validation_error` (400), `not_found` (404 — жителя с таким
 `resident_id` нет или он в архиве), `bad_request` (400).
 
-**Коды `problem_type` аварийных заявок** (бот, 24.09.2026): `gas_smell` — запах
-газа, `sparking` — искрит проводка или дым, `flooding` — прорыв воды.
+**Коды заявок** — по [`config/rules.yaml`](../config/rules.yaml) (Павел; бот переведён
+на них 24.09.2026):
 
-**Коды обычных заявок из диалога бота** (24.09.2026, перечень согласуется с Павлом,
-потом — `config/rules.yaml`): `problem_type` — `water`, `heating`,
-`electricity`, `elevator`, `common_area`, `other`; `place` — `apartment`,
-`entrance`, `building` (подвал, крыша, двор) или `null` (лифт, подъезд — не
-спрашивается). Заявки из зоны собственника в api не приходят вовсе — бот их не создаёт.
+- обычная заявка: `problem_type` — тип (`type` в правилах): `leak`, `blockage`,
+  `heating`, `electricity`, `elevator`, `common_area`, `structural`, `pests`,
+  `other`; `place` — `in_apartment`, `entrance`, `whole_house`, `street`;
+- аварийная заявка: `problem_type` — код опасности (`danger_types` в правилах):
+  `gas_smell`, `exposed_wiring`, `flooding_threat`, `elevator_entrapment`;
+  `place` — `null`. Приоритет «экстренная» = `problem_type` из этого списка,
+  отдельного поля нет.
+
+Место «двор» в `rules.yaml` местами называется `yard`; бот шлёт `street` — до
+решения Павла. Из зоны собственника заявка приходит, только если житель нажал
+«Всё равно передать в УК» — с тем же типом и местом.
 
 > ⚠️ **Пока всегда `status: "new"`, `assigned_organization_id: null`,
 > `deadline_at: null`.** Это не ошибка: маршрутизация по `config/rules.yaml`

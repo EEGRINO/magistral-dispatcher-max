@@ -1,9 +1,9 @@
 /**
  * ╔════════════════════════════════════════════════════════════════════╗
  * ║  ТЕСТОВЫЕ ДАННЫЕ. НЕ ДЛЯ ПРОДАКШЕНА.                               ║
- * ║  Организации и дома ниже — выдуманные, для локальной проверки      ║
- * ║  сквозного прохода. Настоящие справочники приедут из config/       ║
- * ║  (houses.json, rules.yaml) — это зона Павла.                       ║
+ * ║  Организации и дома ниже — выдуманные, обезличенные: взяты из      ║
+ * ║  houses.json Павла (24.09.2026), г. Заречный, 8 домов, 3 из них    ║
+ * ║  на электроплитах. Настоящие дома заводит УК командой на сервере.  ║
  * ╚════════════════════════════════════════════════════════════════════╝
  *
  * Запуск:  npm run seed          (нужен DATABASE_URL в окружении)
@@ -26,21 +26,41 @@
 
 const { Client } = require('pg');
 
-/** Выдуманные организации. Телефоны — из диапазона 555, несуществующие. */
+/**
+ * Выдуманные организации из houses.json Павла. Телефоны — несуществующие
+ * (+7 900 000-…). ТСЖ заведено с типом «УК»: в схеме тип организации —
+ * УК / АДС / РСО, а ТСЖ по роли — та же управляющая организация дома.
+ * ГЖИ (инспекция) не заводим: в маршрутизации заявок она не участвует.
+ */
 const ORGANIZATIONS = [
-  { name: 'УК «Тестовая Жилищная»', type: 'УК', phone: '+7 495 555-01-01' },
-  { name: 'АДС «Тестовая Аварийная»', type: 'АДС', phone: '+7 495 555-02-02' },
-  { name: 'РСО «Тестводоканал»', type: 'РСО', phone: '+7 495 555-03-03' },
+  { name: 'ООО «УК Маяк»', type: 'УК', phone: '+7 900 000-00-01' },
+  { name: 'ООО «УК Солнечная»', type: 'УК', phone: '+7 900 000-00-02' },
+  { name: 'ТСЖ «Берега»', type: 'УК', phone: '+7 900 000-00-03' },
+  { name: 'Аварийно-диспетчерская служба №1', type: 'АДС', phone: '+7 900 111-00-01' },
+  { name: 'Аварийно-диспетчерская служба №2', type: 'АДС', phone: '+7 900 111-00-02' },
+  { name: 'МУП «Водоканал»', type: 'РСО', phone: '+7 900 222-00-01' },
+  { name: 'АО «Теплосеть»', type: 'РСО', phone: '+7 900 222-00-02' },
+  { name: 'ПАО «Энергосбыт»', type: 'РСО', phone: '+7 900 222-00-03' },
+  { name: 'АО «Газораспределение»', type: 'РСО', phone: '+7 900 222-00-04' },
 ];
 
+const ADS_1 = '+7 900 111-00-01';
+const ADS_2 = '+7 900 111-00-02';
+
 /**
- * Дома с привязкой к УК по имени организации. street/number — в нормализованном
- * виде (нижний регистр, без «ул.»), как их хранит схема: так их найдёт ручной ввод.
+ * Дома из houses.json Павла. street/number — в нормализованном виде (нижний
+ * регистр, без «ул.», ё → е), как их хранит схема: так их найдёт ручной ввод.
+ * emergency_phone — телефон АДС дома (ads_id), has_gas — rso.gas не null.
  */
 const HOUSES = [
-  { address: 'г. Тестоград, ул. Примерная, д. 1', street: 'примерная', number: '1', organization: 'УК «Тестовая Жилищная»' },
-  { address: 'г. Тестоград, ул. Примерная, д. 3', street: 'примерная', number: '3', organization: 'УК «Тестовая Жилищная»' },
-  { address: 'г. Тестоград, пр-т Образцовый, д. 12', street: 'образцовый', number: '12', organization: null },
+  { address: 'г. Заречный, ул. Полевая, д. 5', street: 'полевая', number: '5', organization: 'ООО «УК Маяк»', emergencyPhone: ADS_1, hasGas: true },
+  { address: 'г. Заречный, ул. Полевая, д. 7', street: 'полевая', number: '7', organization: 'ООО «УК Маяк»', emergencyPhone: ADS_1, hasGas: true },
+  { address: 'г. Заречный, ул. Солнечная, д. 12', street: 'солнечная', number: '12', organization: 'ООО «УК Солнечная»', emergencyPhone: ADS_2, hasGas: true },
+  { address: 'г. Заречный, пр-т Мира, д. 21', street: 'мира', number: '21', organization: 'ООО «УК Солнечная»', emergencyPhone: ADS_2, hasGas: true },
+  { address: 'г. Заречный, ул. Луговая, д. 3', street: 'луговая', number: '3', organization: 'ТСЖ «Берега»', emergencyPhone: ADS_1, hasGas: false },
+  { address: 'г. Заречный, ул. Берёзовая, д. 9', street: 'березовая', number: '9', organization: 'ТСЖ «Берега»', emergencyPhone: ADS_2, hasGas: false },
+  { address: 'г. Заречный, ул. Заводская, д. 14', street: 'заводская', number: '14', organization: 'ООО «УК Маяк»', emergencyPhone: ADS_1, hasGas: true },
+  { address: 'г. Заречный, ул. Новая, д. 2', street: 'новая', number: '2', organization: 'ООО «УК Солнечная»', emergencyPhone: ADS_2, hasGas: false },
 ];
 
 /** Любой ввод → +7XXXXXXXXXX; null, если это не российский мобильный из 10 цифр. */
@@ -109,18 +129,20 @@ async function main() {
       );
     }
 
-    // DO UPDATE для street/number: дома, загруженные seed'ом до миграции 0002,
-    // уже есть в базе без этих полей — иначе они так и остались бы пустыми.
+    // DO UPDATE: дома, загруженные seed'ом раньше, уже есть в базе без полей
+    // из поздних миграций (street/number — 0002, телефон АДС и газ — 0004).
     for (const house of HOUSES) {
       await client.query(
-        `INSERT INTO houses (address, street, number, organization_id)
+        `INSERT INTO houses (address, street, number, organization_id, emergency_phone, has_gas)
          VALUES (
            $1, $2, $3,
-           (SELECT id FROM organizations WHERE name = $4)
+           (SELECT id FROM organizations WHERE name = $4),
+           $5, $6
          )
          ON CONFLICT (address) DO UPDATE
-           SET street = EXCLUDED.street, number = EXCLUDED.number`,
-        [house.address, house.street, house.number, house.organization],
+           SET street = EXCLUDED.street, number = EXCLUDED.number,
+               emergency_phone = EXCLUDED.emergency_phone, has_gas = EXCLUDED.has_gas`,
+        [house.address, house.street, house.number, house.organization, house.emergencyPhone, house.hasGas],
       );
     }
 

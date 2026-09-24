@@ -83,11 +83,17 @@ export const ResidentResponse = Type.Object({ resident: Resident });
 
 // ── Дом жителя ─────────────────────────────────────────────────────────
 
-/** Только то, что нужно жителю: адрес для подтверждения и ссылка на чат. */
+/** Только то, что нужно боту: адрес, чат, данные для экстренной ветки. */
 export const House = Type.Object({
   id: Id,
   address: Type.String(),
   chat_link: Nullable(Type.String()),
+  /** Телефон АДС дома; null — бот называет 112. */
+  emergency_phone: Nullable(Type.String()),
+  /** false — у дома нет газа, кнопку «Запах газа» бот не показывает. */
+  has_gas: Type.Boolean(),
+  /** Название УК/ТСЖ дома — «оформлю срочную заявку в …»; null — не указана. */
+  uk_name: Nullable(Type.String()),
 });
 
 export const ResidentIdParams = Type.Object({ id: Id });

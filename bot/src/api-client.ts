@@ -31,6 +31,10 @@ export interface House {
   id: number;
   address: string;
   chat_link: string | null;
+  /** Телефон АДС дома; null — называем 112. */
+  emergency_phone: string | null;
+  has_gas: boolean;
+  uk_name: string | null;
 }
 
 /** Заявка — только поля, которые нужны боту. Полный объект — docs/api.md. */

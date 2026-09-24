@@ -33,10 +33,19 @@ const RESIDENT_COLUMNS = 'id, house_id, max_chat_id, max_user_id, created_at';
  * Дом жителя: undefined — жителя нет, null — житель есть, дом неизвестен.
  */
 async function houseOfResident(residentId: number): Promise<HouseDto | null | undefined> {
-  const { rows } = await pool.query<{ house_id: number | null; address: string | null; chat_link: string | null }>(
-    `SELECT h.id AS house_id, h.address, h.chat_link
+  const { rows } = await pool.query<{
+    house_id: number | null;
+    address: string | null;
+    chat_link: string | null;
+    emergency_phone: string | null;
+    has_gas: boolean | null;
+    uk_name: string | null;
+  }>(
+    `SELECT h.id AS house_id, h.address, h.chat_link, h.emergency_phone, h.has_gas,
+            o.name AS uk_name
        FROM residents r
        LEFT JOIN houses h ON h.id = r.house_id
+       LEFT JOIN organizations o ON o.id = h.organization_id
       WHERE r.id = $1`,
     [residentId],
   );
@@ -44,7 +53,14 @@ async function houseOfResident(residentId: number): Promise<HouseDto | null | un
   const row = rows[0];
   if (!row) return undefined;
   if (row.house_id === null || row.address === null) return null;
-  return { id: row.house_id, address: row.address, chat_link: row.chat_link };
+  return {
+    id: row.house_id,
+    address: row.address,
+    chat_link: row.chat_link,
+    emergency_phone: row.emergency_phone,
+    has_gas: row.has_gas ?? true,
+    uk_name: row.uk_name,
+  };
 }
 
 /**

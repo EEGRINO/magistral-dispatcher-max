@@ -1,59 +1,78 @@
 /**
- * Обычная заявка в диалоге: что случилось → где → граница зоны собственника →
- * описание → подтверждение. Согласовано 24.09.2026 (docs/Решения_проекта.md).
+ * Обычная заявка в диалоге — модель Павла (config/rules.yaml, тексты бота от
+ * 23–24.09.2026), согласовано 24.09.2026 (docs/Решения_проекта.md):
  *
- * Здесь только справочник: коды, подписи и правило зоны собственника. Коды —
- * это problem_type и place заявки, по ним будет работать маршрутизация.
- * TODO(Павел): перечень категорий и границы — перенести в config/rules.yaml.
+ *   что случилось → уточнение (опасно? зона собственника?) → где →
+ *   откуда течёт (протечка в квартире) → описание → подтверждение → номер
+ *
+ * Здесь только справочник: коды, подписи, допустимые места. Коды — это type и
+ * place из config/rules.yaml, в заявке — problem_type и place.
  */
 
-export const CATEGORIES = {
-  water: 'Вода, канализация',
-  heating: 'Отопление',
-  electricity: 'Электричество',
-  elevator: 'Лифт',
-  common_area: 'Подъезд, двор, уборка',
-  other: 'Другое',
+export const PROBLEM_TYPES = {
+  leak: '💧 Протечка / потоп',
+  blockage: '🚽 Засор',
+  heating: '🌡️ Нет отопления / холодно',
+  electricity: '⚡ Электричество',
+  elevator: '🛗 Лифт',
+  gas: '🔥 Запах газа',
+  common_area: '🏢 Подъезд / двор',
+  structural: '🪟 Окна / двери / кровля',
+  pests: '🐜 Насекомые / грызуны',
+  other: '❓ Другое / не уверен',
 } as const;
-export type Category = keyof typeof CATEGORIES;
+export type ProblemType = keyof typeof PROBLEM_TYPES;
 
 export const PLACES = {
-  apartment: 'в квартире',
-  entrance: 'в подъезде, на лестнице',
-  building: 'в подвале, на крыше или во дворе',
+  in_apartment: '🏠 У меня в квартире',
+  entrance: '🚪 В подъезде',
+  whole_house: '🏘️ Во всём доме',
+  street: '🛣️ На улице / во дворе',
 } as const;
 export type Place = keyof typeof PLACES;
 
 /**
- * Лифт и подъезд — всегда общее имущество, спрашивать «где» незачем.
- * Для остальных место нужно: от него зависит зона собственника.
+ * Какие места бывают у типа — объединение place правил этого типа в
+ * config/rules.yaml. Кнопок других мест не показываем: правила для них нет.
+ * `yard` в rules.yaml здесь — `street`: какое имя финальное, решает Павел.
+ * Газ — сразу экстренная ветка, места у него не спрашиваем.
+ * TODO: брать из config/rules.yaml, когда появится маршрутизация.
  */
-export const asksPlace = (category: Category): boolean => category !== 'elevator' && category !== 'common_area';
+export const PLACES_BY_TYPE: Record<Exclude<ProblemType, 'gas'>, Place[]> = {
+  leak: ['in_apartment', 'entrance', 'whole_house'],
+  blockage: ['in_apartment', 'entrance', 'whole_house', 'street'],
+  heating: ['in_apartment', 'whole_house'],
+  electricity: ['in_apartment', 'entrance', 'whole_house'],
+  elevator: ['entrance'],
+  common_area: ['entrance', 'street'],
+  structural: ['in_apartment', 'entrance', 'whole_house'],
+  pests: ['in_apartment', 'entrance', 'whole_house'],
+  other: ['in_apartment', 'entrance', 'whole_house', 'street'],
+};
 
-/**
- * Где граница ответственности УК в квартире (ПП РФ № 491, п. 5 и 7): вода —
- * первый кран на отводе от стояка, электричество — квартирный счётчик. У
- * отопления в квартире границы не спрашиваем: радиатор без отключающего крана
- * — общее имущество, и отказать жителю по ошибке хуже, чем принять лишнюю заявку.
- */
-export type BoundaryCategory = 'water' | 'electricity';
-export const hasBoundary = (category: Category, place: Place | undefined): category is BoundaryCategory =>
-  place === 'apartment' && (category === 'water' || category === 'electricity');
-
-/** Ответ на вопрос о границе: УК / собственник / житель не знает — тогда в УК. */
-export const BOUNDARY_ANSWERS = ['uk', 'owner', 'unknown'] as const;
-export type BoundaryAnswer = (typeof BOUNDARY_ANSWERS)[number];
-
-export const isCategory = (value: string): value is Category => value in CATEGORIES;
+export const isProblemType = (value: string): value is ProblemType => value in PROBLEM_TYPES;
 export const isPlace = (value: string): value is Place => value in PLACES;
-export const isBoundaryAnswer = (value: string): value is BoundaryAnswer =>
-  (BOUNDARY_ANSWERS as readonly string[]).includes(value);
+
+/** Чья зона собственника: протечка из оборудования или одна розетка/выключатель. */
+export type OwnerZone = 'leak' | 'electricity';
+
+/** Дом жителя — снимок на время заявки: адрес, телефон АДС, газ, название УК. */
+export interface DraftHouse {
+  address: string;
+  emergency_phone: string | null;
+  has_gas: boolean;
+  uk_name: string | null;
+}
 
 /** Черновик заявки — в памяти бота, как ожидание адреса. */
 export interface ReportDraft {
   residentId: number;
-  step: 'category' | 'place' | 'boundary' | 'description' | 'confirm';
-  category?: Category;
+  /** null — дом жителя неизвестен. */
+  house: DraftHouse | null;
+  step: 'type' | 'clarify' | 'place' | 'leak_source' | 'owner' | 'description' | 'confirm';
+  type?: Exclude<ProblemType, 'gas'>;
   place?: Place;
+  /** На экране зоны собственника — чьей. */
+  ownerZone?: OwnerZone;
   description?: string | null;
 }

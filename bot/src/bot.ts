@@ -9,11 +9,13 @@
  *   - «Чат дома»: дом по данным УК → по QR (?start=invite_code) → по адресу,
  *     введённому вручную; ответ — адрес и ссылка на чат дома.
  *
- * Опасность (газ, искрит, заливает) выясняется ДО обычной заявки: первым
- * вопросом «Сообщить о проблеме» и по словам в любом тексте жителя. Сначала —
- * инструкция, что делать, потом аварийная заявка (решение 24.09.2026).
- * Обычная заявка: что случилось → где → граница зоны собственника (за ней
- * заявка в УК не создаётся) → описание → подтверждение → номер.
+ * «Сообщить о проблеме» — модель Павла (config/rules.yaml, решение 24.09.2026):
+ * что случилось → уточнение (протечка — сильно ли заливает, электричество —
+ * искрит ли, лифт — есть ли кто внутри; газ — сразу) → где → откуда течёт →
+ * описание → подтверждение → номер. Опасность выясняется ДО обычной заявки:
+ * сначала инструкция с телефоном АДС дома, потом аварийная заявка. Зона
+ * собственника — объяснение и «Всё равно передать в УК». Страховка по словам —
+ * в любом тексте: опасность (инструкция + «Да, это авария») и огонь/дым (101/112).
  *
  * Состояний в БД нет. Вошёл ли человек — видно по БД; «ждём адрес», «код
  * дома из QR до входа» и черновики — в памяти (dialog-state.ts), перезапуск
@@ -26,24 +28,33 @@ import { ApiClient, ApiClientError, type House, type Resident } from './api-clie
 import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
 import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency, reportDraft } from './dialog-state.js';
-import { detectDanger, isDangerType, type DangerType } from './emergency.js';
+import { detectDanger, detectFire, isDangerType, type DangerType } from './emergency.js';
 import {
   Action,
-  boundaryKeyboard,
   cancelAddressKeyboard,
-  categoryKeyboard,
+  clarifyKeyboard,
   confirmDangerKeyboard,
   confirmTicketKeyboard,
-  dangerKeyboard,
   descriptionKeyboard,
+  gasCalledKeyboard,
   houseChatKeyboard,
+  leakSourceKeyboard,
   menuKeyboard,
+  ownerZoneKeyboard,
   placeKeyboard,
   requestContactKeyboard,
+  typeKeyboard,
 } from './keyboards.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxAttachment, type MaxUpdate, type SendTarget } from './max-api.js';
-import { asksPlace, hasBoundary, isBoundaryAnswer, isCategory, isPlace, type ReportDraft } from './report.js';
+import {
+  PLACES_BY_TYPE,
+  isPlace,
+  isProblemType,
+  type DraftHouse,
+  type OwnerZone,
+  type ReportDraft,
+} from './report.js';
 
 const api = new MaxApi();
 const apiClient = new ApiClient();
@@ -178,31 +189,42 @@ async function showMenu(target: SendTarget, userId: number | undefined, lead?: s
   await (resident ? sendMenu(target, lead) : askContact(target));
 }
 
-// ── опасность: газ, искрит, заливает ──────────────────────────────────────
+// ── опасность ─────────────────────────────────────────────────────────────
 
-/** «Сообщить о проблеме»: первый вопрос — есть ли опасность прямо сейчас. */
-async function handleReport(target: SendTarget, userId: number | undefined): Promise<void> {
-  if (userId === undefined) {
-    await askContact(target);
-    return;
-  }
-  const resident = await findResident(target, userId, 'при «Сообщить о проблеме»');
-  if (resident === undefined) return;
-  if (resident === null) {
-    await askContact(target);
-    return;
-  }
+/**
+ * Отдельный клиент с коротким таймаутом — только чтобы узнать телефон АДС дома
+ * для экстренной инструкции. Инструкция важнее телефона: api не ответил за
+ * 1,5 секунды — в тексте будет 112, но жителю не придётся ждать.
+ */
+const quickApiClient = new ApiClient(config.apiBaseUrl, 1500);
 
-  // Новый сценарий — ожидание адреса и прошлый черновик больше не актуальны.
-  awaitingAddress.delete(userId);
-  reportDraft.delete(userId);
-  await send(target, messages.askDanger, dangerKeyboard);
+const toDraftHouse = (house: House | null): DraftHouse | null =>
+  house
+    ? { address: house.address, emergency_phone: house.emergency_phone, has_gas: house.has_gas, uk_name: house.uk_name }
+    : null;
+
+/** Дом жителя для экстренного текста; null — не вошёл, дома нет или api не успел. */
+async function houseForEmergency(userId: number | undefined): Promise<DraftHouse | null> {
+  if (userId === undefined) return null;
+  const draft = reportDraft.get(userId);
+  if (draft) return draft.house;
+
+  try {
+    const resident = await quickApiClient.findByMaxUser(userId, shutdown.signal);
+    if (!resident) return null;
+    return toDraftHouse(await quickApiClient.getHouse(resident.id, shutdown.signal));
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    log.warn('дом для экстренной инструкции не получен — в тексте 112', { user_id: userId, error: errorText(error) });
+    return null;
+  }
 }
 
 /**
  * Аварийная заявка. Инструкция жителю к этому моменту УЖЕ отправлена: заявка
  * может не создаться (api лежит, житель не вошёл), а что делать при утечке
- * газа, человек должен узнать в любом случае.
+ * газа, человек должен узнать в любом случае. При газе заявка тоже создаётся
+ * (решение 24.09.2026) — и кнопка «Я позвонил(а)».
  */
 async function registerEmergency(
   target: SendTarget,
@@ -232,7 +254,11 @@ async function registerEmergency(
     recentEmergency.set(userId, { ...recentEmergency.get(userId), [type]: ticket.id });
     // warn, а не info: аварийную заявку в логе должно быть видно сразу.
     log.warn('аварийная заявка', { resident_id: resident.id, ticket_id: ticket.id, type });
-    await send(target, messages.emergencyTicketCreated(ticket.id));
+    await send(
+      target,
+      messages.emergencyTicketCreated(ticket.id),
+      type === 'gas_smell' ? gasCalledKeyboard : undefined,
+    );
   } catch (error) {
     if (isAbort(error)) throw error;
     log.error('аварийная заявка не создана', { user_id: userId, type, error: errorText(error) });
@@ -240,18 +266,27 @@ async function registerEmergency(
   }
 }
 
-/** Кнопка опасности: инструкция и сразу заявка — житель выбрал её сам. */
-async function handleDangerButton(target: SendTarget, userId: number | undefined, type: DangerType): Promise<void> {
-  if (userId !== undefined) pendingDangerText.delete(userId);
-  await send(target, messages.dangerInstructions(type));
+/** Опасность выбрана кнопкой: инструкция и сразу заявка — житель выбрал её сам. */
+async function handleDangerButton(
+  target: SendTarget,
+  userId: number | undefined,
+  type: DangerType,
+  house: DraftHouse | null,
+): Promise<void> {
+  log.info('опасность по кнопке', { user_id: userId, type });
+  if (userId !== undefined) {
+    pendingDangerText.delete(userId);
+    // Авария вместо обычной заявки: черновик больше не нужен.
+    reportDraft.delete(userId);
+  }
+  await send(target, messages.dangerInstructions(type, house, 'button'));
   await registerEmergency(target, userId, type, null);
 }
 
 /**
  * Опасность заподозрена по словам. Инструкция — сразу, без вопросов; заявку —
- * только по кнопке «Да, это авария»: «газовая плита не работает» тоже
- * совпадёт, и ложная аварийная заявка диспетчеру не нужна.
- * Сам текст в лог не пишем — в нём бывает адрес.
+ * только по кнопке «Да, это авария»: «газ отключили» тоже совпадёт, и ложная
+ * аварийная заявка диспетчеру не нужна. Сам текст в лог не пишем — в нём бывает адрес.
  */
 async function handleDangerText(
   target: SendTarget,
@@ -260,64 +295,88 @@ async function handleDangerText(
   type: DangerType,
 ): Promise<void> {
   log.info('опасность по словам', { user_id: userId, type });
+  const house = await houseForEmergency(userId);
   if (userId !== undefined) {
     awaitingAddress.delete(userId);
     pendingDangerText.set(userId, text);
   }
-  await send(
-    target,
-    `${messages.dangerInstructions(type)}\n\n${messages.confirmDanger}`,
-    confirmDangerKeyboard(type),
-  );
+  await send(target, messages.dangerInstructions(type, house, 'confirm'), confirmDangerKeyboard(type));
+}
+
+/**
+ * Огонь или дым — общее правило: сразу 101/112, в любом состоянии, без api.
+ * Сценарий прерывается: сначала безопасность, заявка — потом.
+ */
+async function handleFire(target: SendTarget, userId: number | undefined): Promise<void> {
+  log.warn('огонь или дым по словам', { user_id: userId });
+  if (userId !== undefined) {
+    awaitingAddress.delete(userId);
+    reportDraft.delete(userId);
+    pendingDangerText.delete(userId);
+  }
+  await send(target, messages.fire);
 }
 
 // ── обычная заявка ────────────────────────────────────────────────────────
+
+/** Ответы уточняющего вопроса — по типу. Кнопка от другого типа не принимается. */
+const CLARIFY_ANSWERS = {
+  leak: ['severe', 'moderate'],
+  electricity: ['sparking', 'outage', 'one_socket'],
+  elevator: ['trapped', 'broken'],
+} as const;
+type ClarifyType = keyof typeof CLARIFY_ANSWERS;
+const isClarifyType = (type: string | undefined): type is ClarifyType => type !== undefined && type in CLARIFY_ANSWERS;
 
 /** Вопрос текущего шага черновика — после перехода и когда житель пишет вместо кнопки. */
 async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): Promise<void> {
   const withLead = (text: string): string => (lead ? `${lead}\n${text}` : text);
 
   switch (draft.step) {
-    case 'category':
-      await send(target, withLead(messages.askCategory), categoryKeyboard);
+    case 'type':
+      await send(target, withLead(messages.askType), typeKeyboard(draft.house?.has_gas ?? true));
       return;
-    case 'place':
-      await send(target, withLead(messages.askPlace), placeKeyboard);
-      return;
-    case 'boundary':
-      if (draft.category && hasBoundary(draft.category, draft.place)) {
-        await send(target, withLead(messages.askBoundary(draft.category)), boundaryKeyboard(draft.category));
+    case 'clarify':
+      if (isClarifyType(draft.type)) {
+        await send(target, withLead(messages.askClarify(draft.type)), clarifyKeyboard(draft.type));
         return;
       }
-      // Шаг границы без категории с границей — черновик испорчен; начинаем заново.
-      draft.step = 'category';
-      await askStep(target, draft, lead);
+      break;
+    case 'place':
+      if (draft.type) {
+        await send(target, withLead(messages.askPlace), placeKeyboard(draft.type));
+        return;
+      }
+      break;
+    case 'leak_source':
+      await send(target, withLead(messages.askLeakSource), leakSourceKeyboard);
       return;
+    case 'owner':
+      if (draft.ownerZone) {
+        await send(target, withLead(messages.ownerZone(draft.ownerZone, draft.house)), ownerZoneKeyboard(draft.ownerZone));
+        return;
+      }
+      break;
     case 'description':
       await send(target, withLead(messages.askDescription), descriptionKeyboard);
       return;
-    case 'confirm': {
-      if (!draft.category) {
-        draft.step = 'category';
-        await askStep(target, draft, lead);
+    case 'confirm':
+      if (draft.type) {
+        const summary = messages.confirmTicket({
+          type: draft.type,
+          place: draft.place,
+          address: draft.house?.address ?? null,
+          description: draft.description ?? null,
+        });
+        await send(target, withLead(summary), confirmTicketKeyboard);
         return;
       }
-      let address: string | null;
-      try {
-        address = (await apiClient.getHouse(draft.residentId, shutdown.signal))?.address ?? null;
-      } catch (error) {
-        await serviceUnavailable(target, 'при подтверждении заявки', { resident_id: draft.residentId }, error);
-        return;
-      }
-      const summary = messages.confirmTicket({
-        category: draft.category,
-        place: draft.place,
-        address,
-        description: draft.description ?? null,
-      });
-      await send(target, withLead(summary), confirmTicketKeyboard);
-    }
+      break;
   }
+
+  // Шаг без нужных для него ответов — черновик испорчен; начинаем с типа.
+  draft.step = 'type';
+  await askStep(target, draft, lead);
 }
 
 /** Перейти к шагу и задать его вопрос. Черновик пересохраняется — таймаут заново. */
@@ -327,27 +386,59 @@ async function goTo(target: SendTarget, userId: number, draft: ReportDraft, step
   await askStep(target, draft);
 }
 
-/** «Нет, обычная проблема»: черновик заявки и первый вопрос. */
-async function startTicket(target: SendTarget, userId: number | undefined): Promise<void> {
+/** После места: протечка в квартире — «откуда течёт?» (граница собственника), иначе описание. */
+async function afterPlace(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
+  await goTo(target, userId, draft, draft.type === 'leak' && draft.place === 'in_apartment' ? 'leak_source' : 'description');
+}
+
+/** К вопросу «где?». Если место у типа одно (лифт — подъезд), не спрашиваем. */
+async function toPlace(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
+  const places = draft.type ? PLACES_BY_TYPE[draft.type] : [];
+  if (places.length === 1) {
+    draft.place = places[0];
+    await afterPlace(target, userId, draft);
+    return;
+  }
+  await goTo(target, userId, draft, 'place');
+}
+
+/** Экран зоны собственника. Метрика пилота: сколько обращений закрыто инструкцией. */
+async function toOwnerZone(target: SendTarget, userId: number, draft: ReportDraft, zone: OwnerZone): Promise<void> {
+  draft.ownerZone = zone;
+  log.info('зона собственника', { resident_id: draft.residentId, zone });
+  await goTo(target, userId, draft, 'owner');
+}
+
+/** «Сообщить о проблеме»: черновик с домом жителя и «Что случилось?». */
+async function startReport(target: SendTarget, userId: number | undefined): Promise<void> {
   if (userId === undefined) {
     await askContact(target);
     return;
   }
-  const resident = await findResident(target, userId, 'при начале заявки');
+  const resident = await findResident(target, userId, 'при «Сообщить о проблеме»');
   if (resident === undefined) return;
   if (resident === null) {
     await askContact(target);
     return;
   }
 
+  let house: House | null;
+  try {
+    house = await apiClient.getHouse(resident.id, shutdown.signal);
+  } catch (error) {
+    await serviceUnavailable(target, 'при «Сообщить о проблеме»', { resident_id: resident.id }, error);
+    return;
+  }
+
+  // Новый сценарий — ожидание адреса больше не актуально.
   awaitingAddress.delete(userId);
-  await goTo(target, userId, { residentId: resident.id, step: 'category' }, 'category');
+  await goTo(target, userId, { residentId: resident.id, house: toDraftHouse(house), step: 'type' }, 'type');
 }
 
 /** Отправить заявку из черновика. При сбое черновик остаётся — можно нажать ещё раз. */
 async function submitTicket(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
-  if (!draft.category) {
-    await goTo(target, userId, draft, 'category');
+  if (!draft.type) {
+    await goTo(target, userId, draft, 'type');
     return;
   }
 
@@ -357,11 +448,18 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
   try {
     const ticket = await apiClient.createTicket(
       draft.residentId,
-      { problemType: draft.category, place: draft.place ?? null, description: draft.description ?? null },
+      { problemType: draft.type, place: draft.place ?? null, description: draft.description ?? null },
       shutdown.signal,
     );
-    log.info('заявка создана', { resident_id: draft.residentId, ticket_id: ticket.id, category: draft.category });
-    await sendMenu(target, messages.ticketCreated(ticket.id));
+    log.info('заявка создана', {
+      resident_id: draft.residentId,
+      ticket_id: ticket.id,
+      type: draft.type,
+      place: draft.place ?? null,
+      // Метрика пилота: «всё равно передать в УК» из зоны собственника.
+      owner_zone_override: draft.ownerZone !== undefined,
+    });
+    await sendMenu(target, messages.ticketCreated(ticket.id, draft.type === 'other'));
   } catch (error) {
     if (isAbort(error)) throw error;
     if (error instanceof ApiClientError && error.code === 'not_found') {
@@ -376,9 +474,9 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
 }
 
 /**
- * Кнопки шагов заявки. Кнопку из более раннего сообщения принимаем: житель
- * передумал с категорией — начинаем с неё, дальнейшие ответы сбрасываются.
- * Кнопка шага, до которого черновик не дошёл, — повторяем текущий вопрос.
+ * Кнопки шагов заявки. Кнопку «что случилось» из более раннего сообщения
+ * принимаем: житель передумал — начинаем с неё, дальнейшие ответы сбрасываются.
+ * Кнопка не к месту — повторяем текущий вопрос.
  */
 async function handleTicketButton(target: SendTarget, userId: number | undefined, payload: string): Promise<void> {
   const draft = userId === undefined ? undefined : reportDraft.get(userId);
@@ -395,29 +493,90 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
 
   const [kind, value = ''] = payload.split(':');
 
-  if (kind === 'cat' && isCategory(value)) {
-    const next: ReportDraft = { residentId: draft.residentId, step: 'category', category: value };
-    await goTo(target, userId, next, asksPlace(value) ? 'place' : 'description');
-    return;
-  }
-
-  if (kind === 'place' && isPlace(value) && draft.category && asksPlace(draft.category)) {
-    const next: ReportDraft = { residentId: draft.residentId, step: 'place', category: draft.category, place: value };
-    await goTo(target, userId, next, hasBoundary(draft.category, value) ? 'boundary' : 'description');
-    return;
-  }
-
-  if (kind === 'bound' && isBoundaryAnswer(value) && draft.category && hasBoundary(draft.category, draft.place)) {
-    if (value === 'owner') {
-      // Зона собственника: заявка в УК не создаётся (решение 24.09.2026).
-      reportDraft.delete(userId);
-      log.info('зона собственника — заявка не создана', { resident_id: draft.residentId, category: draft.category });
-      await showMenu(target, userId, messages.ownerZone(draft.category));
+  // «Что случилось?»
+  if (kind === 'type' && isProblemType(value)) {
+    if (value === 'gas') {
+      await handleDangerButton(target, userId, 'gas_smell', draft.house);
       return;
     }
-    // «Не знаю» — тоже в УК: разберутся на месте, отказывать по догадке нельзя.
-    await goTo(target, userId, draft, 'description');
+    const next: ReportDraft = { residentId: draft.residentId, house: draft.house, step: 'type', type: value };
+    if (isClarifyType(value)) {
+      await goTo(target, userId, next, 'clarify');
+    } else {
+      await toPlace(target, userId, next);
+    }
     return;
+  }
+
+  // Уточнение: опасно? зона собственника? — только к своему типу.
+  if (kind === 'clar' && isClarifyType(draft.type) && (CLARIFY_ANSWERS[draft.type] as readonly string[]).includes(value)) {
+    switch (value) {
+      case 'severe':
+        await handleDangerButton(target, userId, 'flooding_threat', draft.house);
+        return;
+      case 'sparking':
+        await handleDangerButton(target, userId, 'exposed_wiring', draft.house);
+        return;
+      case 'trapped':
+        await handleDangerButton(target, userId, 'elevator_entrapment', draft.house);
+        return;
+      case 'one_socket':
+        // Одна розетка при свете у соседей — внутриквартирная проводка.
+        draft.place = 'in_apartment';
+        await toOwnerZone(target, userId, draft, 'electricity');
+        return;
+      default: // moderate, outage, broken
+        await toPlace(target, userId, draft);
+        return;
+    }
+  }
+
+  // «Где?» — только места, для которых у типа есть правило.
+  if (kind === 'place' && isPlace(value) && draft.type && PLACES_BY_TYPE[draft.type].includes(value)) {
+    draft.place = value;
+    draft.ownerZone = undefined;
+    await afterPlace(target, userId, draft);
+    return;
+  }
+
+  // «Откуда течёт?» — протечка в квартире.
+  if (kind === 'src' && draft.type === 'leak' && draft.place === 'in_apartment') {
+    if (value === 'owner') {
+      await toOwnerZone(target, userId, draft, 'leak');
+      return;
+    }
+    if (value === 'riser' || value === 'valve' || value === 'unknown') {
+      // «Не знаю / течёт с потолка» — в УК: по умолчанию в пользу жителя.
+      await goTo(target, userId, draft, 'description');
+      return;
+    }
+  }
+
+  // Экран зоны собственника.
+  if (kind === 'own' && draft.step === 'owner' && draft.ownerZone) {
+    if (value === 'ok') {
+      reportDraft.delete(userId);
+      log.info('зона собственника — закрыто инструкцией', { resident_id: draft.residentId, zone: draft.ownerZone });
+      await showMenu(target, userId);
+      return;
+    }
+    if (value === 'send') {
+      // Ответ о границе мог быть ошибочным — не оставляем в тупике: обычная
+      // заявка с теми же типом и местом (решение 24.09.2026).
+      log.info('зона собственника — всё равно в УК', { resident_id: draft.residentId, zone: draft.ownerZone });
+      await goTo(target, userId, draft, 'description');
+      return;
+    }
+    if (value === 'alt') {
+      if (draft.ownerZone === 'electricity') {
+        await handleDangerButton(target, userId, 'exposed_wiring', draft.house);
+      } else {
+        // Течёт сам кран или он не перекрывается — это уже общее имущество.
+        draft.ownerZone = undefined;
+        await goTo(target, userId, draft, 'description');
+      }
+      return;
+    }
   }
 
   if (payload === Action.skipDescription && draft.step === 'description') {
@@ -633,11 +792,17 @@ async function handleContact(target: SendTarget, senderId: number | undefined, c
 }
 
 /**
- * Обычный текст. Сначала — страховка по словам: опасность важнее любого шага
- * сценария и не требует входа. Дальше: ждём адрес — это адрес; иначе меню
- * (или кнопка контакта, если не вошёл).
+ * Обычный текст. Сначала — страховка по словам: огонь и дым (101/112), затем
+ * опасность; они важнее любого шага сценария и не требуют входа. Дальше:
+ * черновик заявки ждёт описание — это описание; ждём адрес — это адрес;
+ * иначе меню (или кнопка контакта, если не вошёл).
  */
 async function handleText(target: SendTarget, userId: number | undefined, text: string): Promise<void> {
+  if (detectFire(text)) {
+    await handleFire(target, userId);
+    return;
+  }
+
   const danger = detectDanger(text);
   if (danger) {
     await handleDangerText(target, userId, text, danger);
@@ -693,27 +858,22 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
 
   const payload = callback.payload ?? '';
 
-  // Кнопки с типом опасности в payload: danger:<тип> и danger_confirm:<тип>.
+  // «Да, это авария» после подозрения по словам: danger_confirm:<тип>.
   const [prefix, type] = payload.split(':');
-  if ((prefix === 'danger' || prefix === 'danger_confirm') && type && isDangerType(type)) {
+  if (prefix === 'danger_confirm' && type && isDangerType(type)) {
     await answer('Принято');
-    if (prefix === 'danger') {
-      log.info('опасность по кнопке', { user_id: userId, type });
-      await handleDangerButton(target, userId, type);
-    } else {
-      const text = userId === undefined ? undefined : pendingDangerText.get(userId);
-      if (userId !== undefined) {
-        pendingDangerText.delete(userId);
-        // Авария вместо обычной заявки: черновик больше не нужен.
-        reportDraft.delete(userId);
-      }
-      await registerEmergency(target, userId, type, text ?? null);
+    const text = userId === undefined ? undefined : pendingDangerText.get(userId);
+    if (userId !== undefined) {
+      pendingDangerText.delete(userId);
+      // Авария вместо обычной заявки: черновик больше не нужен.
+      reportDraft.delete(userId);
     }
+    await registerEmergency(target, userId, type, text ?? null);
     return;
   }
 
   if (
-    /^(cat|place|bound):/.test(payload) ||
+    /^(type|clar|place|src|own):/.test(payload) ||
     payload === Action.skipDescription ||
     payload === Action.sendTicket ||
     payload === Action.cancelTicket
@@ -726,13 +886,13 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
   switch (payload) {
     case Action.report: {
       await answer('Сообщить о проблеме');
-      await handleReport(target, userId);
+      await startReport(target, userId);
       return;
     }
 
-    case Action.noDanger: {
-      await answer('Обычная проблема');
-      await startTicket(target, userId);
+    case Action.gasCalled: {
+      await answer('Спасибо');
+      await showMenu(target, userId, messages.gasCalled);
       return;
     }
 

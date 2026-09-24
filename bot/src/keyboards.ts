@@ -1,10 +1,11 @@
 /**
  * Клавиатуры бота. Клавиатура — вложение inline_keyboard, форма кнопок —
- * docs/max-notes.md, раздел «Inline-клавиатура».
+ * docs/max-notes.md, раздел «Inline-клавиатура». Подписи кнопок заявки — из
+ * текстов Павла (24.09.2026).
  */
 import { config } from './config.js';
 import type { DangerType } from './emergency.js';
-import { CATEGORIES, PLACES, type BoundaryCategory, type Category, type Place } from './report.js';
+import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, type OwnerZone, type ProblemType } from './report.js';
 import type { MaxAttachment } from './max-api.js';
 
 /** payload кнопок callback — по ним бот понимает, что нажато. */
@@ -12,26 +13,28 @@ export const Action = {
   houseChat: 'menu:house_chat',
   cancelAddress: 'address:cancel',
   report: 'menu:report',
-  /** Обычная проблема, без опасности. */
-  noDanger: 'danger:none',
   /** «Нет, всё в порядке» после подозрения на опасность по словам. */
   dismissDanger: 'danger:dismiss',
+  /** «Я позвонил(а)» после инструкции при запахе газа. */
+  gasCalled: 'gas:called',
   skipDescription: 'desc:skip',
   sendTicket: 'ticket:send',
   cancelTicket: 'ticket:cancel',
 } as const;
 
-/** Шаги обычной заявки: cat:<код>, place:<код>, bound:<uk|owner|unknown>. */
-export const categoryAction = (category: Category): string => `cat:${category}`;
-export const placeAction = (place: Place): string => `place:${place}`;
-export const boundaryAction = (answer: 'uk' | 'owner' | 'unknown'): string => `bound:${answer}`;
+/**
+ * Шаги заявки: type:<код>, clar:<ответ>, place:<код>, src:<откуда течёт>,
+ * own:<ok|send|alt> — экран зоны собственника.
+ */
+export const typeAction = (type: ProblemType): string => `type:${type}`;
+export const placeAction = (place: keyof typeof PLACES): string => `place:${place}`;
 
-/** Кнопка опасности: danger:<тип> — сразу экстренная заявка. */
-export const dangerAction = (type: DangerType): string => `danger:${type}`;
 /** Подтверждение опасности, заподозренной по словам: danger_confirm:<тип>. */
 export const confirmDangerAction = (type: DangerType): string => `danger_confirm:${type}`;
 
 type Button = Record<string, unknown>;
+
+const callback = (text: string, payload: string): Button[] => [{ type: 'callback', text, payload }];
 
 /** Пустую клавиатуру не шлём вовсе: как MAX отнесётся к buttons: [], дока не говорит. */
 function keyboard(rows: Button[][]): MaxAttachment[] {
@@ -64,8 +67,8 @@ function testAppRow(): Button[][] {
 
 export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard([
-    [{ type: 'callback', text: 'Сообщить о проблеме', payload: Action.report }],
-    [{ type: 'callback', text: 'Чат дома', payload: Action.houseChat }],
+    callback('Сообщить о проблеме', Action.report),
+    callback('Чат дома', Action.houseChat),
     ...appRow(botUsername),
     ...testAppRow(),
   ]);
@@ -82,68 +85,87 @@ export function houseChatKeyboard(chatLink: string | null, botUsername: string |
   ]);
 }
 
-export const cancelAddressKeyboard: MaxAttachment[] = keyboard([
-  [{ type: 'callback', text: 'Отмена', payload: Action.cancelAddress }],
-]);
+export const cancelAddressKeyboard: MaxAttachment[] = keyboard([callback('Отмена', Action.cancelAddress)]);
 
-/** Первый вопрос сценария «Сообщить о проблеме». Кнопки опасности — первыми. */
-export const dangerKeyboard: MaxAttachment[] = keyboard([
-  [{ type: 'callback', text: 'Пахнет газом', payload: dangerAction('gas_smell') }],
-  [{ type: 'callback', text: 'Искрит проводка, дым', payload: dangerAction('sparking') }],
-  [{ type: 'callback', text: 'Заливает водой', payload: dangerAction('flooding') }],
-  [{ type: 'callback', text: 'Нет, обычная проблема', payload: Action.noDanger }],
-]);
+// ── опасность ─────────────────────────────────────────────────────────────
 
 export function confirmDangerKeyboard(type: DangerType): MaxAttachment[] {
   return keyboard([
-    [{ type: 'callback', text: 'Да, это авария', payload: confirmDangerAction(type) }],
-    [{ type: 'callback', text: 'Нет, всё в порядке', payload: Action.dismissDanger }],
+    callback('Да, это авария', confirmDangerAction(type)),
+    callback('Нет, всё в порядке', Action.dismissDanger),
   ]);
 }
+
+/** После инструкции при запахе газа (тексты Павла). */
+export const gasCalledKeyboard: MaxAttachment[] = keyboard([callback('Я позвонил(а)', Action.gasCalled)]);
 
 // ── обычная заявка ────────────────────────────────────────────────────────
 
 /** «Отмена» — на каждом шаге заявки: выйти можно в любой момент. */
-const cancelTicketRow: Button[] = [{ type: 'callback', text: 'Отмена', payload: Action.cancelTicket }];
+const cancelTicketRow: Button[] = callback('Отмена', Action.cancelTicket);
 
-export const categoryKeyboard: MaxAttachment[] = keyboard([
-  ...(Object.entries(CATEGORIES) as [Category, string][]).map(([code, label]) => [
-    { type: 'callback', text: label, payload: categoryAction(code) },
-  ]),
-  cancelTicketRow,
-]);
+/** «Что случилось?». Дому без газа кнопку «Запах газа» не показываем (rules.yaml, fallback_policy). */
+export function typeKeyboard(hasGas: boolean): MaxAttachment[] {
+  const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => hasGas || type !== 'gas');
+  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), cancelTicketRow]);
+}
 
-export const placeKeyboard: MaxAttachment[] = keyboard([
-  ...(Object.entries(PLACES) as [Place, string][]).map(([code, label]) => [
-    // Подпись с заглавной: «в квартире» → «В квартире».
-    { type: 'callback', text: label[0]!.toUpperCase() + label.slice(1), payload: placeAction(code) },
-  ]),
-  cancelTicketRow,
-]);
-
-/** Кнопки границы — своими словами для каждой категории: «первый кран» понятнее, чем «зона ответственности». */
-const BOUNDARY_BUTTONS: Record<BoundaryCategory, { uk: string; owner: string }> = {
-  water: { uk: 'Стояк или до первого крана', owner: 'После крана: смеситель, трубы, унитаз' },
-  electricity: { uk: 'Этажный щиток, до счётчика', owner: 'Проводка, розетки, выключатели в квартире' },
+/** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */
+const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator', [string, string][]> = {
+  leak: [
+    ['🌊 Сильно течёт, заливает / может залить соседей', 'clar:severe'],
+    ['💧 Капает или течёт умеренно', 'clar:moderate'],
+  ],
+  electricity: [
+    ['⚠️ Искрит, дымит, пахнет гарью, оголённые провода', 'clar:sparking'],
+    ['Нет света во всей квартире / в подъезде / во всём доме', 'clar:outage'],
+    ['Не работает одна розетка или выключатель, у соседей свет есть', 'clar:one_socket'],
+  ],
+  elevator: [
+    ['🆘 Да, человек застрял', 'clar:trapped'],
+    ['Нет, лифт просто не работает', 'clar:broken'],
+  ],
 };
 
-export function boundaryKeyboard(category: BoundaryCategory): MaxAttachment[] {
-  const labels = BOUNDARY_BUTTONS[category];
+export function clarifyKeyboard(type: keyof typeof CLARIFY_BUTTONS): MaxAttachment[] {
+  return keyboard([...CLARIFY_BUTTONS[type].map(([text, payload]) => callback(text, payload)), cancelTicketRow]);
+}
+
+/** «Где?» — только места, для которых у типа есть правило. */
+export function placeKeyboard(type: keyof typeof PLACES_BY_TYPE): MaxAttachment[] {
   return keyboard([
-    [{ type: 'callback', text: labels.uk, payload: boundaryAction('uk') }],
-    [{ type: 'callback', text: labels.owner, payload: boundaryAction('owner') }],
-    [{ type: 'callback', text: 'Не знаю', payload: boundaryAction('unknown') }],
+    ...PLACES_BY_TYPE[type].map((place) => callback(PLACES[place], placeAction(place))),
     cancelTicketRow,
   ]);
 }
 
+/** «Откуда именно течёт?» — протечка в квартире; граница по ПП № 491, п. 5. */
+export const leakSourceKeyboard: MaxAttachment[] = keyboard([
+  callback('Стояк или труба до первого крана', 'src:riser'),
+  callback('Сам кран на трубе от стояка (первый вентиль)', 'src:valve'),
+  callback('Смеситель, гибкий шланг, унитаз, стиральная машина, трубы после крана', 'src:owner'),
+  callback('Не знаю / течёт с потолка', 'src:unknown'),
+  cancelTicketRow,
+]);
+
+/** Экран зоны собственника: всегда есть «Всё равно передать в УК» — тупик хуже лишней заявки. */
+export function ownerZoneKeyboard(zone: OwnerZone): MaxAttachment[] {
+  return keyboard([
+    callback('✅ Понятно, спасибо', 'own:ok'),
+    callback('📨 Всё равно передать в УК', 'own:send'),
+    zone === 'leak'
+      ? callback('🔁 Кран не перекрывается / течёт сам кран', 'own:alt')
+      : callback('⚠️ Теперь искрит или пахнет гарью', 'own:alt'),
+  ]);
+}
+
 export const descriptionKeyboard: MaxAttachment[] = keyboard([
-  [{ type: 'callback', text: 'Без описания', payload: Action.skipDescription }],
+  callback('Без описания', Action.skipDescription),
   cancelTicketRow,
 ]);
 
 export const confirmTicketKeyboard: MaxAttachment[] = keyboard([
-  [{ type: 'callback', text: 'Отправить', payload: Action.sendTicket }],
+  callback('Отправить', Action.sendTicket),
   cancelTicketRow,
 ]);
 
