@@ -61,8 +61,34 @@ body {
   white-space: nowrap;
 }
 
-.status--review { background: #fef3c7; color: #92500e; }
-.status--work   { background: #dbeafe; color: #1d4ed8; }
-.status--done   { background: #dcfce7; color: #15803d; }
+.status--new         { background: #fef3c7; color: #92500e; }
+.status--in_progress { background: #dbeafe; color: #1d4ed8; }
+.status--resolved    { background: #dcfce7; color: #15803d; }
 
 .muted { color: var(--text-secondary); }
+
+/* Тексты Павла приходят с переносами строк — сохраняем их. */
+.multiline { white-space: pre-line; }
+
+/* Длинный текст (инструкция, зона собственника) — карточкой, как ячейки. */
+.notice {
+  margin: 0 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--background-primary);
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.notice--danger {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+/* Кнопки звонка столбиком. */
+.phones {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

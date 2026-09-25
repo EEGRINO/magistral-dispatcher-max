@@ -1,101 +1,371 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Button, CellHeader, CellList, CellSimple, Container, Panel, Textarea, Typography } from '@maxhub/max-ui';
 import {
-  Button,
-  CellHeader,
-  CellList,
-  CellSimple,
-  Container,
-  Input,
-  Panel,
-  Radio,
-  Textarea,
-  Typography,
-} from '@maxhub/max-ui';
-import type { CreateTicketInput, TicketType } from '../types/domain';
-import { TICKET_TYPES, TICKET_TYPE_LABEL } from '../types/domain';
+  CLARIFY,
+  LEAK_SOURCES,
+  OWNER_ALT_LABEL,
+  dangerInstructions,
+  isClarifyType,
+  ownerZoneText,
+  type ClarifyOutcome,
+  type ClarifyType,
+  type OwnerZone,
+  type TicketDraft,
+} from '../scenario';
+import type { DangerType, House, Place, ProblemType, Ticket } from '../types/domain';
+import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, TICKET_STATUS_LABEL } from '../types/domain';
 
-interface NewTicketScreenProps {
-  error: string | null;
-  onCancel: () => void;
-  onSubmit: (input: CreateTicketInput) => Promise<void>;
+type Step =
+  | { name: 'type' }
+  | { name: 'clarify'; type: ClarifyType }
+  | { name: 'place'; type: Exclude<ProblemType, 'gas'> }
+  | { name: 'leak_source' }
+  | { name: 'owner'; zone: OwnerZone }
+  | { name: 'description' }
+  | { name: 'confirm' }
+  | { name: 'danger'; danger: DangerType; ticket: Ticket }
+  | { name: 'done'; ticket: Ticket; manual: boolean };
+
+/** Ответы жителя по ходу сценария — как черновик заявки у бота. */
+interface Answers {
+  type?: Exclude<ProblemType, 'gas'>;
+  place?: Place;
+  detail?: string;
+  description?: string | null;
 }
 
-export function NewTicketScreen({ error, onCancel, onSubmit }: NewTicketScreenProps) {
-  const [contractNumber, setContractNumber] = useState('');
-  const [type, setType] = useState<TicketType>('pipe');
-  const [description, setDescription] = useState('');
-  const [sending, setSending] = useState(false);
+interface NewTicketScreenProps {
+  house: House | null;
+  /** Регистрирует заявку и возвращает её с номером. */
+  onCreate: (draft: TicketDraft) => Ticket;
+  onClose: () => void;
+}
 
-  const filled = contractNumber.trim().length > 0 && description.trim().length > 0;
+export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenProps) {
+  const [step, setStep] = useState<Step>({ name: 'type' });
+  const [answers, setAnswers] = useState<Answers>({});
+  const [text, setText] = useState('');
 
-  async function handleSubmit() {
-    setSending(true);
-    await onSubmit({ contractNumber, type, description: description.trim() });
-    setSending(false);
+  // Авария: инструкция сразу, аварийная заявка — тоже сразу, без вопросов (как у бота по кнопке).
+  function toDanger(danger: DangerType) {
+    const ticket = onCreate({ problem_type: danger, place: null, detail_code: null, description: null });
+    setStep({ name: 'danger', danger, ticket });
   }
 
+  function afterPlace(next: Answers) {
+    setAnswers(next);
+    setStep(next.type === 'leak' && next.place === 'in_apartment' ? { name: 'leak_source' } : { name: 'description' });
+  }
+
+  /** К «где?»; если место у типа одно (лифт — подъезд), не спрашиваем. */
+  function toPlace(next: Answers & { type: Exclude<ProblemType, 'gas'> }) {
+    const places = PLACES_BY_TYPE[next.type];
+    if (places.length === 1) {
+      afterPlace({ ...next, place: places[0] });
+      return;
+    }
+    setAnswers(next);
+    setStep({ name: 'place', type: next.type });
+  }
+
+  function chooseType(type: ProblemType) {
+    if (type === 'gas') {
+      toDanger('gas_smell');
+      return;
+    }
+    // Житель передумал с типом — прежние ответы сбрасываются.
+    const next = { type };
+    if (isClarifyType(type)) {
+      setAnswers(next);
+      setStep({ name: 'clarify', type });
+    } else {
+      toPlace(next);
+    }
+  }
+
+  function chooseClarify(outcome: ClarifyOutcome) {
+    const type = answers.type!;
+    switch (outcome.kind) {
+      case 'danger':
+        toDanger(outcome.danger);
+        return;
+      case 'place':
+        toPlace({ type, detail: outcome.detail });
+        return;
+      case 'owner':
+        setAnswers({ type, detail: outcome.detail, place: outcome.place });
+        setStep({ name: 'owner', zone: 'electricity' });
+        return;
+      case 'fixed_place':
+        afterPlace({ type, detail: outcome.detail, place: outcome.place });
+        return;
+    }
+  }
+
+  function chooseOwner(action: 'ok' | 'send' | 'alt', zone: OwnerZone) {
+    if (action === 'ok') {
+      onClose();
+      return;
+    }
+    if (action === 'send') {
+      // Ответ о границе мог быть ошибочным — не оставляем в тупике (решение 24.09.2026).
+      setAnswers({ ...answers, detail: 'owner_override' });
+      setStep({ name: 'description' });
+      return;
+    }
+    if (zone === 'electricity') {
+      toDanger('exposed_wiring');
+    } else {
+      // Течёт сам кран или он не перекрывается — это уже общее имущество.
+      setAnswers({ ...answers, detail: 'valve' });
+      setStep({ name: 'description' });
+    }
+  }
+
+  function toConfirm(description: string | null) {
+    setAnswers({ ...answers, description });
+    setStep({ name: 'confirm' });
+  }
+
+  function submit() {
+    const ticket = onCreate({
+      problem_type: answers.type!,
+      place: answers.place ?? null,
+      detail_code: answers.detail ?? null,
+      description: answers.description ?? null,
+    });
+    // «Другое / не уверен» — заявку классифицирует диспетчер, об этом говорим жителю.
+    setStep({ name: 'done', ticket, manual: answers.type === 'other' });
+  }
+
+  switch (step.name) {
+    case 'type': {
+      // Дому без газа кнопку «Запах газа» не показываем; дом неизвестен — показываем.
+      const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => house?.has_gas !== false || type !== 'gas');
+      return (
+        <Question title="Выберите, что случилось:" onCancel={onClose}>
+          {types.map((type) => (
+            <Option key={type} label={PROBLEM_TYPES[type]} onClick={() => chooseType(type)} />
+          ))}
+        </Question>
+      );
+    }
+
+    case 'clarify':
+      return (
+        <Question title={CLARIFY[step.type].question} onCancel={onClose}>
+          {CLARIFY[step.type].options.map((option) => (
+            <Option key={option.label} label={option.label} onClick={() => chooseClarify(option.outcome)} />
+          ))}
+        </Question>
+      );
+
+    case 'place':
+      return (
+        <Question title="Уточните, где именно:" onCancel={onClose}>
+          {PLACES_BY_TYPE[step.type].map((place) => (
+            <Option key={place} label={PLACES[place]} onClick={() => afterPlace({ ...answers, place })} />
+          ))}
+        </Question>
+      );
+
+    case 'leak_source':
+      return (
+        <Question title="Откуда именно течёт?" onCancel={onClose}>
+          {LEAK_SOURCES.map((source) => (
+            <Option
+              key={source.detail}
+              label={source.label}
+              onClick={() => {
+                setAnswers({ ...answers, detail: source.detail });
+                setStep(source.owner ? { name: 'owner', zone: 'leak' } : { name: 'description' });
+              }}
+            />
+          ))}
+        </Question>
+      );
+
+    case 'owner':
+      return (
+        <Page
+          footer={
+            <>
+              <Button variant="primary" size="large" stretched onClick={() => chooseOwner('ok', step.zone)}>
+                ✅ Понятно, спасибо
+              </Button>
+              <Button variant="secondary" size="large" stretched onClick={() => chooseOwner('send', step.zone)}>
+                📨 Всё равно передать в УК
+              </Button>
+            </>
+          }
+        >
+          <Container>
+            <Typography.Title>Это зона собственника</Typography.Title>
+          </Container>
+          <div className="notice multiline">{ownerZoneText(step.zone, house)}</div>
+          {/* Пунктом списка, а не кнопкой: кнопки однострочные, длинная подпись обрезалась. */}
+          <div className="section">
+            <CellHeader>Если всё иначе</CellHeader>
+            <CellList mode="island">
+              <Option label={OWNER_ALT_LABEL[step.zone]} onClick={() => chooseOwner('alt', step.zone)} />
+            </CellList>
+          </div>
+        </Page>
+      );
+
+    case 'description':
+      return (
+        <Page
+          footer={
+            <>
+              <Button
+                variant="primary"
+                size="large"
+                stretched
+                disabled={text.trim().length === 0}
+                onClick={() => toConfirm(text.trim())}
+              >
+                Далее
+              </Button>
+              <Button variant="secondary" size="large" stretched onClick={() => toConfirm(null)}>
+                Без описания
+              </Button>
+              <Button variant="ghost" size="large" stretched onClick={onClose}>
+                Отмена
+              </Button>
+            </>
+          }
+        >
+          <Container>
+            <Typography.Title>Опишите проблему</Typography.Title>
+            <Typography.Body className="muted">
+              Например: «Не работает кран горячей воды на кухне». Можно и без описания.
+            </Typography.Body>
+          </Container>
+          <Container>
+            <Textarea rows={5} maxLength={4000} value={text} onChange={(event) => setText(event.target.value)} />
+          </Container>
+        </Page>
+      );
+
+    case 'confirm':
+      return (
+        <Page
+          footer={
+            <>
+              <Button variant="primary" size="large" stretched onClick={submit}>
+                Отправить
+              </Button>
+              <Button variant="secondary" size="large" stretched onClick={onClose}>
+                Отмена
+              </Button>
+            </>
+          }
+        >
+          <Container>
+            <Typography.Title>Проверьте заявку</Typography.Title>
+          </Container>
+          <CellList mode="island">
+            <CellSimple overline="Что" title={PROBLEM_TYPES[answers.type!]} />
+            {answers.place && <CellSimple overline="Где" title={PLACES[answers.place]} />}
+            <CellSimple overline="Адрес" title={house?.address ?? 'дом не указан — УК уточнит'} />
+            <CellSimple overline="Описание" title={answers.description ?? '—'} />
+          </CellList>
+        </Page>
+      );
+
+    case 'danger': {
+      const { text: instructions, phones } = dangerInstructions(step.danger, house);
+      return (
+        <Page
+          footer={
+            <Button variant="primary" size="large" stretched onClick={onClose}>
+              {step.danger === 'gas_smell' ? 'Я позвонил(а)' : 'Готово'}
+            </Button>
+          }
+        >
+          <div className="notice notice--danger multiline">{instructions}</div>
+          <Container className="phones">
+            {phones.map((phone) => (
+              <Button key={phone.label} asChild variant="destructive" size="large" stretched>
+                <a href={`tel:${phone.number.replace(/[^\d+]/g, '')}`}>
+                  📞 {phone.number} — {phone.label}
+                </a>
+              </Button>
+            ))}
+          </Container>
+          <TicketSummary ticket={step.ticket} emergency />
+        </Page>
+      );
+    }
+
+    case 'done':
+      return (
+        <Page
+          footer={
+            <Button variant="primary" size="large" stretched onClick={onClose}>
+              К моим заявкам
+            </Button>
+          }
+        >
+          {step.manual && (
+            <Container>
+              <Typography.Body className="muted">
+                Такой тип обращения нельзя маршрутизировать автоматически — заявка передана
+                диспетчеру на ручную классификацию.
+              </Typography.Body>
+            </Container>
+          )}
+          <TicketSummary ticket={step.ticket} emergency={false} />
+        </Page>
+      );
+  }
+}
+
+function Page({ children, footer }: { children: ReactNode; footer: ReactNode }) {
   return (
     <Panel mode="secondary" className="page">
-      <div className="page__body">
-        <Container>
-          <Typography.Title>Новая заявка</Typography.Title>
-          <Typography.Body className="muted">
-            Номер договора указан в квитанции — по нему определится адрес квартиры.
-          </Typography.Body>
-        </Container>
+      <div className="page__body">{children}</div>
+      <div className="page__footer">{footer}</div>
+    </Panel>
+  );
+}
 
-        <Container>
-          <Input
-            size="large"
-            inputMode="numeric"
-            value={contractNumber}
-            placeholder="Номер договора, например 77012"
-            hint={error ?? undefined}
-            onChange={(event) => setContractNumber(event.target.value)}
-          />
-        </Container>
-
-        {/* Заголовок вынесен из CellList: у встроенного header отступ до списка
-            слишком мал, а его внутренние классы захешированы и не настраиваются. */}
-        <div className="section">
-          <CellHeader>Проблема</CellHeader>
-          <CellList mode="island">
-            {TICKET_TYPES.map((value) => (
-              <CellSimple
-                key={value}
-                title={TICKET_TYPE_LABEL[value]}
-                onClick={() => setType(value)}
-                after={<Radio checked={type === value} readOnly />}
-              />
-            ))}
-          </CellList>
-        </div>
-
-        <Container>
-          <Textarea
-            rows={5}
-            value={description}
-            placeholder="Опишите проблему: где, с какого времени, есть ли угроза"
-            onChange={(event) => setDescription(event.target.value)}
-          />
-        </Container>
-      </div>
-
-      <div className="page__footer">
-        <Button
-          variant="primary"
-          size="large"
-          stretched
-          loading={sending}
-          disabled={!filled}
-          onClick={handleSubmit}
-        >
-          Отправить
-        </Button>
+/** Шаг-вопрос: заголовок, варианты списком, «Отмена» — на каждом шаге, как у бота. */
+function Question({ title, children, onCancel }: { title: string; children: ReactNode; onCancel: () => void }) {
+  return (
+    <Page
+      footer={
         <Button variant="secondary" size="large" stretched onClick={onCancel}>
           Отмена
         </Button>
-      </div>
-    </Panel>
+      }
+    >
+      <Container>
+        <Typography.Title>{title}</Typography.Title>
+      </Container>
+      <CellList mode="island">{children}</CellList>
+    </Page>
+  );
+}
+
+function Option({ label, onClick }: { label: string; onClick: () => void }) {
+  return <CellSimple title={label} showChevron onClick={onClick} />;
+}
+
+/** «Заявка зарегистрирована» — номер, статус, приоритет и ответственный, если он уже есть. */
+function TicketSummary({ ticket, emergency }: { ticket: Ticket; emergency: boolean }) {
+  return (
+    <div className="section">
+      <Container>
+        <Typography.Title>Заявка зарегистрирована</Typography.Title>
+      </Container>
+      <CellList mode="island">
+        <CellSimple overline="Номер заявки" title={String(ticket.id)} />
+        <CellSimple overline="Статус" title={TICKET_STATUS_LABEL[ticket.status]} />
+        {emergency && <CellSimple overline="Приоритет" title="экстренная" />}
+        {ticket.responsible_name && <CellSimple overline="Ответственный" title={ticket.responsible_name} />}
+      </CellList>
+    </div>
   );
 }

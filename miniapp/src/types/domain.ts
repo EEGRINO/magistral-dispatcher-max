@@ -1,56 +1,98 @@
-/** Договор — он же объект обслуживания: номер из квитанции задаёт адрес квартиры. */
-export interface Contract {
-  id: string;
-  street: string;
-  house: string;
-  block?: string;
-  flat: string;
-}
+/**
+ * Модель мини-аппа = модель api (docs/api.md, объект Ticket). Коды и подписи
+ * типов, мест и опасностей — те же, что у бота (bot/src/report.ts,
+ * bot/src/status.ts): житель должен видеть одинаковые слова в обоих местах.
+ */
 
-export type TicketType = 'pipe' | 'electricity' | 'heating' | 'internet' | 'other';
+export const PROBLEM_TYPES = {
+  leak: '💧 Протечка / потоп',
+  blockage: '🚽 Засор',
+  heating: '🌡️ Нет отопления / холодно',
+  electricity: '⚡ Электричество',
+  elevator: '🛗 Лифт',
+  gas: '🔥 Запах газа',
+  common_area: '🏢 Подъезд / двор',
+  structural: '🪟 Окна / двери / кровля',
+  pests: '🐜 Насекомые / грызуны',
+  other: '❓ Другое / не уверен',
+} as const;
+export type ProblemType = keyof typeof PROBLEM_TYPES;
 
-export type TicketStatus = 'review' | 'work' | 'done';
+export const PLACES = {
+  in_apartment: '🏠 У меня в квартире',
+  entrance: '🚪 В подъезде',
+  whole_house: '🏘️ Во всём доме',
+  street: '🛣️ На улице / во дворе',
+} as const;
+export type Place = keyof typeof PLACES;
 
+/** Допустимые места типа — как у бота. Газ мест не имеет: сразу экстренная ветка. */
+export const PLACES_BY_TYPE: Record<Exclude<ProblemType, 'gas'>, Place[]> = {
+  leak: ['in_apartment', 'entrance', 'whole_house'],
+  blockage: ['in_apartment', 'entrance', 'whole_house', 'street'],
+  heating: ['in_apartment', 'whole_house'],
+  electricity: ['in_apartment', 'entrance', 'whole_house'],
+  elevator: ['entrance'],
+  common_area: ['entrance', 'street'],
+  structural: ['in_apartment', 'entrance', 'whole_house'],
+  pests: ['in_apartment', 'entrance', 'whole_house'],
+  other: ['in_apartment', 'entrance', 'whole_house', 'street'],
+};
+
+/** Аварийная заявка: problem_type — код опасности, отдельного поля приоритета нет. */
+export const DANGER_TYPES = {
+  gas_smell: '🔥 Запах газа',
+  exposed_wiring: '⚠️ Искрит проводка',
+  flooding_threat: '🌊 Угроза затопления',
+  elevator_entrapment: '🆘 Человек застрял в лифте',
+} as const;
+export type DangerType = keyof typeof DANGER_TYPES;
+
+export type TicketStatus = 'new' | 'in_progress' | 'resolved';
+
+/** Подписи статусов — свои у мини-аппа (решение 24.09.2026), коды — api. */
+export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
+  new: 'В рассмотрении',
+  in_progress: 'В работе',
+  resolved: 'Решено',
+};
+
+/** Поля объекта Ticket из docs/api.md, которые показывает мини-апп. */
 export interface Ticket {
   id: number;
-  contractId: string;
-  /** Адрес на момент подачи: заявка остаётся читаемой, даже если договор изменят. */
-  address: string;
-  type: TicketType;
-  description: string;
-  createdAt: string;
+  problem_type: string;
+  place: string | null;
+  description: string | null;
   status: TicketStatus;
+  created_at: string;
+  responsible_name: string | null;
+  deadline_at: string | null;
+  deadline_verified: boolean;
 }
 
-export interface CreateTicketInput {
-  contractNumber: string;
-  type: TicketType;
-  description: string;
+/** Дом жителя — как у бота в черновике заявки (bot/src/report.ts, DraftHouse). */
+export interface House {
+  address: string;
+  chat_link: string | null;
+  emergency_phone: string | null;
+  has_gas: boolean;
+  uk_name: string | null;
 }
 
-export const TICKET_TYPE_LABEL: Record<TicketType, string> = {
-  pipe: 'Прорыв трубы',
-  electricity: 'Электричество',
-  heating: 'Отопление',
-  internet: 'Интернет',
-  other: 'Другое',
-};
+export const isEmergency = (problemType: string): boolean => problemType in DANGER_TYPES;
 
-export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
-  review: 'В рассмотрении',
-  work: 'В работе',
-  done: 'Решено',
-};
-
-export const TICKET_TYPES: TicketType[] = ['pipe', 'electricity', 'heating', 'internet', 'other'];
-
-export function formatAddress(contract: Contract): string {
-  const parts = [`ул. ${contract.street}`, `д. ${contract.house}`];
-
-  if (contract.block) {
-    parts.push(`корп. ${contract.block}`);
-  }
-
-  parts.push(`кв. ${contract.flat}`);
-  return parts.join(', ');
+/** «Что случилось» по коду; незнакомый код — как есть. */
+export function problemLabel(problemType: string): string {
+  if (problemType in PROBLEM_TYPES) return PROBLEM_TYPES[problemType as ProblemType];
+  if (problemType in DANGER_TYPES) return DANGER_TYPES[problemType as DangerType];
+  return problemType;
 }
+
+export function placeLabel(place: string | null): string | null {
+  return place !== null && place in PLACES ? PLACES[place as Place] : null;
+}
+
+/** Дата подачи — по Москве, как у бота: иначе ночная заявка покажет «вчера». */
+const createdDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
+
+export const formatCreated = (iso: string): string => createdDate.format(new Date(iso));

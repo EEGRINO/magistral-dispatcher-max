@@ -15,6 +15,8 @@ declare global {
     /** Разобранные данные запуска. Форма не проверена на живом клиенте,
      *  поэтому unknown: разбираем с проверками в bridge.ts. */
     initDataUnsafe?: unknown;
+    /** Диплинк внутри MAX (чат, канал, бот). */
+    openMaxLink?: (url: string) => void;
   }
 
   interface Window {

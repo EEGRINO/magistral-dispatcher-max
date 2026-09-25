@@ -1,61 +1,61 @@
-import { useEffect, useState } from 'react';
-import { Panel, Spinner } from '@maxhub/max-ui';
-import { ApiError, createTicket, fetchTickets } from './api';
-import { getLaunchInfo } from './bridge';
+import { useState } from 'react';
+import { DEMO_HOUSE, DEMO_TICKETS } from './demo';
+import type { TicketDraft } from './scenario';
+import { HouseChatScreen } from './screens/HouseChatScreen';
 import { NewTicketScreen } from './screens/NewTicketScreen';
+import { TicketScreen } from './screens/TicketScreen';
 import { TicketsScreen } from './screens/TicketsScreen';
-import type { CreateTicketInput, Ticket } from './types/domain';
+import type { Ticket } from './types/domain';
 
-const launch = getLaunchInfo();
+type Screen = { name: 'tickets' } | { name: 'ticket'; id: number } | { name: 'report' } | { name: 'chat' };
 
+/**
+ * Пока мини-апп не подключён к api, заявки живут в памяти страницы: демо-заявки
+ * плюс созданные в этой сессии. Жителя и маршрутизацию определит api —
+ * поэтому у новой заявки ответственного здесь нет.
+ */
 export function App() {
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>({ name: 'tickets' });
+  const [tickets, setTickets] = useState<Ticket[]>(DEMO_TICKETS);
+  const house = DEMO_HOUSE;
 
-  useEffect(() => {
-    fetchTickets().then((loaded) => {
-      setTickets(loaded);
-      setLoading(false);
-    });
-  }, []);
+  const toList = () => setScreen({ name: 'tickets' });
 
-  if (loading) {
-    return (
-      <Panel mode="secondary" centeredX centeredY className="page">
-        <Spinner />
-      </Panel>
-    );
+  function createTicket(draft: TicketDraft): Ticket {
+    const ticket: Ticket = {
+      id: Math.max(0, ...tickets.map((t) => t.id)) + 1,
+      problem_type: draft.problem_type,
+      place: draft.place,
+      description: draft.description,
+      status: 'new',
+      created_at: new Date().toISOString(),
+      responsible_name: null,
+      deadline_at: null,
+      deadline_verified: false,
+    };
+    setTickets((current) => [ticket, ...current]);
+    return ticket;
   }
 
-  if (creating) {
-    return (
-      <NewTicketScreen
-        error={error}
-        onCancel={() => {
-          setError(null);
-          setCreating(false);
-        }}
-        onSubmit={async (input: CreateTicketInput) => {
-          try {
-            await createTicket(input);
-            setTickets(await fetchTickets());
-            setError(null);
-            setCreating(false);
-          } catch (cause) {
-            setError(cause instanceof ApiError ? cause.message : 'Не удалось отправить заявку');
-          }
-        }}
-      />
-    );
+  switch (screen.name) {
+    case 'report':
+      return <NewTicketScreen house={house} onCreate={createTicket} onClose={toList} />;
+    case 'chat':
+      return <HouseChatScreen house={house} onBack={toList} />;
+    case 'ticket': {
+      const ticket = tickets.find((t) => t.id === screen.id);
+      if (ticket) return <TicketScreen ticket={ticket} onBack={toList} />;
+      break;
+    }
   }
 
   return (
     <TicketsScreen
       tickets={tickets}
-      launch={launch}
-      onCreateTicket={() => setCreating(true)}
+      house={house}
+      onOpenTicket={(id) => setScreen({ name: 'ticket', id })}
+      onReport={() => setScreen({ name: 'report' })}
+      onHouseChat={() => setScreen({ name: 'chat' })}
     />
   );
 }
