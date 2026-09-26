@@ -165,4 +165,6 @@ export interface TicketDraft {
   place: Place | null;
   detail_code: string | null;
   description: string | null;
+  /** Дом заявки — обязателен, если у жителя несколько домов (docs/api.md, 0.13). */
+  house_id?: number;
 }

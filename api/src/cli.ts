@@ -35,6 +35,8 @@ const HELP = `Дома, жители и заявки УК.
                  Житель получит уведомление от бота в течение нескольких секунд.
 
 Значение «-» стирает поле: --apartment -, --chat -.
+Дом, подъезд, этаж, квартира и договор — основной квартиры жителя. Другие его
+квартиры (в том числе в других домах) заводятся в pgAdmin: таблица resident_premises.
 Смена телефона снимает привязку к MAX — житель войдёт в бота заново.
 Архив вместо удаления: войти нельзя, заявки жителя остаются.
 
@@ -86,6 +88,7 @@ interface Resident {
   floor: number | null;
   apartment: string | null;
   contract_number: string | null;
+  premises_count: number;
   max_linked: boolean;
   archived_at: string | null;
 }
@@ -149,7 +152,9 @@ function printResident(r: Resident): void {
     .join(', ');
 
   console.log(
-    `#${r.id}  ${r.phone}  ${r.house_address ?? 'дом не указан'}${place ? `, ${place}` : ''}\n` +
+    `#${r.id}  ${r.phone}  ${r.house_address ?? 'дом не указан'}${place ? `, ${place}` : ''}` +
+      (r.premises_count > 1 ? `   (+${r.premises_count - 1} кв. — в pgAdmin, resident_premises)` : '') +
+      '\n' +
       `     договор: ${r.contract_number ?? '—'}   вошёл в бота: ${r.max_linked ? 'да' : 'нет'}` +
       (r.archived_at ? `   В АРХИВЕ с ${r.archived_at.slice(0, 10)}` : ''),
   );

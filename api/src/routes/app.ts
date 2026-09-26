@@ -27,7 +27,7 @@ import {
   TicketResponse,
 } from '../schemas.js';
 import { cancelTicket, createTicket, residentTickets, ticketDto } from '../ticket-store.js';
-import { houseOfResident } from './residents.js';
+import { housesOfResident } from './residents.js';
 
 /** Житель по подписанному initData; иначе — ошибка с понятным кодом. */
 async function authenticate(request: FastifyRequest): Promise<number> {
@@ -63,14 +63,14 @@ export const appRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (app
     '/app/me',
     {
       schema: {
-        description: 'Мини-апп: кто я и мой дом (адрес, чат, телефон АДС, газ, УК)',
+        description: 'Мини-апп: кто я и мои дома (адрес, чат, телефон АДС, газ, УК)',
         response: { 200: AppMeResponse, ...AuthErrors },
       },
     },
     async (request) => {
       const residentId = await authenticate(request);
-      const house = await houseOfResident(residentId);
-      return { resident_id: residentId, house: house ?? null };
+      const houses = (await housesOfResident(residentId)) ?? [];
+      return { resident_id: residentId, house: houses[0] ?? null, houses };
     },
   );
 
@@ -100,13 +100,14 @@ export const appRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (app
     },
     async (request, reply) => {
       const residentId = await authenticate(request);
-      const { problem_type, place = null, description = null, detail_code = null } = request.body;
+      const { problem_type, place = null, description = null, detail_code = null, house_id } = request.body;
       const ticket = await createTicket(rules, request.log, {
         resident_id: residentId,
         problem_type,
         place,
         description,
         detail_code,
+        house_id,
       });
       request.log.info({ resident_id: residentId, ticket_id: ticket.id, rule: ticket.rule_id }, 'заявка из мини-аппа');
       return reply.code(201).send({ ticket: ticketDto(rules, ticket) });

@@ -179,11 +179,21 @@ async function main() {
       await client.query('UPDATE houses SET chat_link = $1 WHERE address = $2', [chatLink, firstHouse]);
     }
 
+    // Квартира — отдельной строкой в resident_premises (0009). Житель, уже
+    // заведённый раньше, получает квартиру в первом доме, только если квартир
+    // у него нет вовсе: заведённые руками в pgAdmin seed не трогает.
     for (const phone of testPhones) {
       await client.query(
-        `INSERT INTO residents (phone, house_id)
-         VALUES ($1, (SELECT id FROM houses WHERE address = $2))
+        `INSERT INTO residents (phone) VALUES ($1)
          ON CONFLICT (phone) WHERE archived_at IS NULL DO NOTHING`,
+        [phone],
+      );
+      await client.query(
+        `INSERT INTO resident_premises (resident_id, house_id)
+         SELECT r.id, (SELECT id FROM houses WHERE address = $2)
+           FROM residents r
+          WHERE r.phone = $1 AND r.archived_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM resident_premises p WHERE p.resident_id = r.id)`,
         [phone, firstHouse],
       );
     }

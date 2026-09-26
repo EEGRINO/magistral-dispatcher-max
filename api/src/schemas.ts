@@ -60,6 +60,7 @@ const Phone = Type.String({ pattern: '^\\+7[0-9]{10}$', description: '+7 и 10 �
  */
 export const Resident = Type.Object({
   id: Id,
+  /** Дом основной (первой) квартиры; все дома жителя — GET /residents/:id/houses. */
   house_id: Nullable(Id),
   max_chat_id: Nullable(Type.Integer()),
   max_user_id: Nullable(Type.Integer()),
@@ -100,8 +101,14 @@ export const House = Type.Object({
 
 export const ResidentIdParams = Type.Object({ id: Id });
 
-/** house: null — дом жителя ещё неизвестен (УК его не указала, житель не вводил). */
+/**
+ * house: null — дом жителя ещё неизвестен (УК его не указала, житель не вводил).
+ * У жителя с несколькими домами — дом основной квартиры.
+ */
 export const HouseResponse = Type.Object({ house: Nullable(House) });
+
+/** Дома жителя по его квартирам, основной первым; пусто — дом неизвестен. */
+export const HouseListResponse = Type.Object({ houses: Type.Array(House) });
 
 export const HouseByInviteBody = Type.Object(
   {
@@ -171,6 +178,11 @@ export const AdminResident = Type.Object({
   floor: Nullable(Type.Integer()),
   apartment: Nullable(Type.String()),
   contract_number: Nullable(Type.String()),
+  /**
+   * Сколько всего квартир у жителя (0009). Поля house_id…contract_number выше —
+   * основная квартира; остальные УК ведёт в таблице resident_premises.
+   */
+  premises_count: Type.Integer(),
   /** Житель уже вошёл в бота. Сам id MAX УК не нужен. */
   max_linked: Type.Boolean(),
   archived_at: Nullable(Type.String({ format: 'date-time' })),
@@ -178,7 +190,10 @@ export const AdminResident = Type.Object({
   updated_at: Type.String({ format: 'date-time' }),
 });
 
-/** Поля «где живёт». null — стереть значение; поле не передано — не менять. */
+/**
+ * Поля основной квартиры. null — стереть значение; поле не передано — не менять.
+ * house_id: null — убрать основную квартиру вовсе (следующая станет основной).
+ */
 const ResidentPlace = {
   house_id: Type.Optional(NullableInput(Id)),
   entrance: Type.Optional(NullableInput(Type.Integer({ minimum: 1, maximum: 100 }))),
@@ -213,8 +228,10 @@ export const AdminResidentListResponse = Type.Object({ residents: Type.Array(Adm
 
 export const AppMeResponse = Type.Object({
   resident_id: Id,
-  /** null — дом жителя неизвестен (УК не указала, житель не вводил адрес). */
+  /** null — дом жителя неизвестен (УК не указала, житель не вводил адрес). Несколько — основной. */
   house: Nullable(House),
+  /** Все дома жителя по квартирам, основной первым (0009): больше одного — мини-апп спрашивает дом. */
+  houses: Type.Array(House),
 });
 
 /** Как тело POST /tickets, но без resident_id: жителя определяет api по initData. */
@@ -224,6 +241,11 @@ export const AppCreateTicketBody = Type.Object(
     place: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
     description: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 4000 }))),
     detail_code: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
+    /**
+     * Дом заявки — один из домов жителя (0009). Обязателен, если домов
+     * несколько: иначе 400 house_required. Не передан при одном доме — он.
+     */
+    house_id: Type.Optional(Id),
   },
   { additionalProperties: false },
 );
@@ -339,6 +361,11 @@ export const CreateTicketBody = Type.Object(
     description: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 4000 }))),
     /** Код ответа на уточнение — кнопка бота: riser, valve, chute, one_socket… */
     detail_code: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
+    /**
+     * Дом заявки — один из домов жителя (0009). Обязателен, если домов
+     * несколько: иначе 400 house_required. Не передан при одном доме — он.
+     */
+    house_id: Type.Optional(Id),
   },
   { additionalProperties: false },
 );
@@ -375,6 +402,7 @@ export type TicketDto = Static<typeof Ticket>;
 
 export interface ResidentRow {
   id: number;
+  /** Дом основной квартиры — подзапрос к resident_premises, см. RESIDENT_COLUMNS. */
   house_id: number | null;
   max_chat_id: number | null;
   max_user_id: number | null;

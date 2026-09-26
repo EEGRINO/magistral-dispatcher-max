@@ -9,7 +9,7 @@
  */
 import type { FastifyBaseLogger } from 'fastify';
 import { pool, withTransaction } from './db.js';
-import { notCancellable, notFound } from './errors.js';
+import { houseNotLinked, houseRequired, notCancellable, notFound } from './errors.js';
 import { MANUAL_RULE_ID, RESPONSIBLE_LABEL, resolve, type Responsible, type Rules } from './routing.js';
 import { toTicketDto, type TicketDto, type TicketRow } from './schemas.js';
 
@@ -62,23 +62,43 @@ export interface NewTicket {
   place: string | null;
   description: string | null;
   detail_code: string | null;
+  /** Дом заявки из домов жителя; не передан — единственный дом жителя. */
+  house_id?: number | undefined;
 }
 
-/** Создать заявку с маршрутизацией и событием created; житель не найден — 404. */
+/**
+ * Создать заявку с маршрутизацией и событием created; житель не найден — 404.
+ * Домов у жителя несколько, а дом не указан — 400 house_required: молча
+ * отправить заявку в УК другого дома хуже, чем переспросить.
+ */
 export async function createTicket(rules: Rules, log: FastifyBaseLogger, input: NewTicket): Promise<TicketRow> {
   const { resident_id, problem_type, place, description, detail_code } = input;
 
   // Заявка и первая запись в истории создаются вместе или не создаются
   // вовсе: заявка без события 'created' сломала бы ленту событий.
   return withTransaction(async (client) => {
-    const residentResult = await client.query<{ id: number; house_id: number | null }>(
+    const residentResult = await client.query<{ id: number }>(
       // Житель из архива заявок не подаёт: для бота его уже нет.
-      'SELECT id, house_id FROM residents WHERE id = $1 AND archived_at IS NULL',
+      'SELECT id FROM residents WHERE id = $1 AND archived_at IS NULL',
       [resident_id],
     );
+    if (!residentResult.rows[0]) throw notFound(`Житель ${resident_id} не найден`);
 
-    const resident = residentResult.rows[0];
-    if (!resident) throw notFound(`Житель ${resident_id} не найден`);
+    const housesResult = await client.query<{ house_id: number }>(
+      'SELECT DISTINCT house_id FROM resident_premises WHERE resident_id = $1',
+      [resident_id],
+    );
+    const houseIds = housesResult.rows.map((row) => Number(row.house_id));
+    let houseId: number | null;
+    if (input.house_id !== undefined) {
+      if (!houseIds.includes(input.house_id)) throw houseNotLinked();
+      houseId = input.house_id;
+    } else if (houseIds.length > 1) {
+      throw houseRequired();
+    } else {
+      houseId = houseIds[0] ?? null;
+    }
+    const resident = { house_id: houseId };
 
     // Дом для маршрутизации: есть ли газ, УК и РСО по ролям.
     let house: { has_gas: boolean; organization_id: number | null; rso: Map<string, number> } | null = null;
@@ -106,8 +126,8 @@ export async function createTicket(rules: Rules, log: FastifyBaseLogger, input: 
       );
     }
 
-    // house_id копируем из жителя в саму заявку: житель может переехать,
-    // заявка должна остаться привязанной к дому, где была проблема.
+    // house_id копируем в саму заявку: житель может переехать, заявка должна
+    // остаться привязанной к дому, где была проблема.
     // Срок — от момента создания, в часах из правила; нет числа — NULL.
     const inserted = await client.query<{ id: number; status: string }>(
       `INSERT INTO tickets (resident_id, house_id, problem_type, place, description, detail_code,

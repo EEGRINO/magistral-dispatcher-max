@@ -69,6 +69,14 @@ export const recentEmergency = new ExpiringMap<Partial<Record<DangerType, number
 export const pendingDangerText = new ExpiringMap<string>(15 * 60 * 1000);
 
 /**
+ * Аварийная заявка ждёт выбора дома: user_id → тип и описание. Только у жителя
+ * с квартирами в нескольких домах (кейс 10 чек-листа). 15 минут.
+ */
+export const pendingEmergencyHouse = new ExpiringMap<{ type: DangerType; description: string | null }>(
+  15 * 60 * 1000,
+);
+
+/**
  * «Живое» сообщение бота в диалоге — меню или вопрос с кнопками: chat_id → mid.
  * Нажатие кнопки меняет его на месте; ответ текстом — бот удаляет его и пишет
  * новый вопрос (решение 26.09.2026). Номера заявок, инструкции при аварии и

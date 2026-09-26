@@ -7,11 +7,16 @@
  * изнутри сервера. Веб-панель УК потом ляжет на эти же маршруты.
  *
  * Жителей не удаляем, а переводим в архив: на них ссылаются заявки.
+ *
+ * Квартиры жителя — в resident_premises (0009). Здесь, как и раньше, поля
+ * «где живёт» — это основная (первая) квартира; остальные УК ведёт в pgAdmin,
+ * их число — в premises_count.
  */
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
+import type { PoolClient } from 'pg';
 import { parseAddress } from '../address.js';
-import { pool } from '../db.js';
-import { addressUnrecognized, notFound, residentArchived } from '../errors.js';
+import { pool, withTransaction } from '../db.js';
+import { addressUnrecognized, notFound, premiseWithoutHouse, residentArchived } from '../errors.js';
 import { rejectProxied } from '../internal-only.js';
 import {
   AdminHouseListResponse,
@@ -43,8 +48,9 @@ interface AdminHouseRow {
 
 const HOUSE_SELECT = `
   SELECT h.id, h.address, h.street, h.number, h.chat_link, h.invite_code, h.created_at,
-         (SELECT count(*) FROM residents r
-           WHERE r.house_id = h.id AND r.archived_at IS NULL)::int AS residents
+         (SELECT count(DISTINCT p.resident_id) FROM resident_premises p
+            JOIN residents r ON r.id = p.resident_id
+           WHERE p.house_id = h.id AND r.archived_at IS NULL)::int AS residents
     FROM houses h`;
 
 const toAdminHouse = (row: AdminHouseRow) => ({ ...row, created_at: row.created_at.toISOString() });
@@ -74,19 +80,25 @@ interface AdminResidentRow {
   floor: number | null;
   apartment: string | null;
   contract_number: string | null;
+  premises_count: number;
   max_linked: boolean;
   archived_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
 
+/** Основная квартира — первая заведённая (наименьший id), см. 0009. */
 const RESIDENT_SELECT = `
-  SELECT r.id, r.phone, r.house_id, h.address AS house_address,
-         r.entrance, r.floor, r.apartment, r.contract_number,
+  SELECT r.id, r.phone, p.house_id, h.address AS house_address,
+         p.entrance, p.floor, p.apartment, p.contract_number,
+         (SELECT count(*) FROM resident_premises x WHERE x.resident_id = r.id)::int AS premises_count,
          (r.max_user_id IS NOT NULL) AS max_linked,
          r.archived_at, r.created_at, r.updated_at
     FROM residents r
-    LEFT JOIN houses h ON h.id = r.house_id`;
+    LEFT JOIN LATERAL (
+      SELECT * FROM resident_premises x WHERE x.resident_id = r.id ORDER BY x.id LIMIT 1
+    ) p ON true
+    LEFT JOIN houses h ON h.id = p.house_id`;
 
 const toAdminResident = (row: AdminResidentRow) => ({
   ...row,
@@ -102,8 +114,51 @@ async function loadResident(id: number) {
   return toAdminResident(row);
 }
 
-/** Поля «где живёт», которые можно менять, — в порядке колонок таблицы. */
+/** Поля основной квартиры, которые можно менять, — в порядке колонок resident_premises. */
 const PLACE_COLUMNS = ['house_id', 'entrance', 'floor', 'apartment', 'contract_number'] as const;
+type PlaceFields = Partial<Record<(typeof PLACE_COLUMNS)[number], number | string | null>>;
+
+/**
+ * Записать поля основной квартиры жителя. Есть квартира — правим её
+ * (house_id: null — убираем её); нет — заводим, если указан дом. Поля
+ * квартиры без дома — 400: квартира в resident_premises всегда с домом.
+ */
+async function savePlace(client: PoolClient, residentId: number, fields: PlaceFields): Promise<void> {
+  const given = PLACE_COLUMNS.filter((column) => fields[column] !== undefined);
+  if (given.length === 0) return;
+
+  const { rows } = await client.query<{ id: number }>(
+    'SELECT id FROM resident_premises WHERE resident_id = $1 ORDER BY id LIMIT 1 FOR UPDATE',
+    [residentId],
+  );
+  const main = rows[0];
+
+  if (fields.house_id === null) {
+    if (main) await client.query('DELETE FROM resident_premises WHERE id = $1', [main.id]);
+    return;
+  }
+
+  if (main) {
+    const sets = given.map((column, i) => `${column} = $${i + 2}`);
+    await client.query(`UPDATE resident_premises SET ${sets.join(', ')} WHERE id = $1`, [
+      main.id,
+      ...given.map((column) => fields[column]),
+    ]);
+    return;
+  }
+
+  if (fields.house_id === undefined) {
+    // Стереть поле квартиры, которой нет, — нечего делать; задать — нужен дом.
+    if (given.every((column) => fields[column] === null)) return;
+    throw premiseWithoutHouse();
+  }
+
+  await client.query(
+    `INSERT INTO resident_premises (resident_id, ${given.join(', ')})
+     VALUES ($1, ${given.map((_, i) => `$${i + 2}`).join(', ')})`,
+    [residentId, ...given.map((column) => fields[column])],
+  );
+}
 
 // ── Маршруты ───────────────────────────────────────────────────────────
 
@@ -213,7 +268,8 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
       const values: unknown[] = [];
       if (house_id !== undefined) {
         values.push(house_id);
-        where.push(`r.house_id = $${values.length}`);
+        // Любая квартира жителя в этом доме, не только основная.
+        where.push(`EXISTS (SELECT 1 FROM resident_premises x WHERE x.resident_id = r.id AND x.house_id = $${values.length})`);
       }
       if (phone !== undefined) {
         values.push(phone);
@@ -224,7 +280,7 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
       const { rows } = await pool.query<AdminResidentRow>(
         `${RESIDENT_SELECT}
          ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
-         ORDER BY h.address NULLS LAST, r.entrance NULLS LAST, r.apartment NULLS LAST, r.id`,
+         ORDER BY h.address NULLS LAST, p.entrance NULLS LAST, p.apartment NULLS LAST, r.id`,
         values,
       );
       return { residents: rows.map(toAdminResident) };
@@ -245,14 +301,17 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
 
       // Несуществующий house_id — FK → 400 invalid_reference;
       // номер уже заведён — UNIQUE → 409 conflict.
-      const { rows } = await pool.query<{ id: number }>(
-        `INSERT INTO residents (phone, ${PLACE_COLUMNS.join(', ')})
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [body.phone, ...PLACE_COLUMNS.map((column) => body[column] ?? null)],
-      );
+      const id = await withTransaction(async (client) => {
+        const { rows } = await client.query<{ id: number }>('INSERT INTO residents (phone) VALUES ($1) RETURNING id', [
+          body.phone,
+        ]);
+        const residentId = rows[0]!.id;
+        await savePlace(client, residentId, body);
+        return residentId;
+      });
 
       reply.code(201);
-      return { resident: await loadResident(rows[0]!.id) };
+      return { resident: await loadResident(id) };
     },
   );
 
@@ -289,18 +348,18 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
           `max_chat_id = CASE WHEN phone = ${p} THEN max_chat_id END`,
         );
       }
-      for (const column of PLACE_COLUMNS) {
-        if (body[column] !== undefined) sets.push(`${column} = ${param(body[column])}`);
-      }
+      const updated = await withTransaction(async (client) => {
+        const { rows } = await client.query<{ id: number }>(
+          `UPDATE residents SET ${sets.join(', ')}
+            WHERE id = $1 AND archived_at IS NULL
+        RETURNING id`,
+          values,
+        );
+        if (rows[0]) await savePlace(client, id, body);
+        return rows[0];
+      });
 
-      const { rows } = await pool.query<{ id: number }>(
-        `UPDATE residents SET ${sets.join(', ')}
-          WHERE id = $1 AND archived_at IS NULL
-      RETURNING id`,
-        values,
-      );
-
-      if (!rows[0]) {
+      if (!updated) {
         const existing = await loadResident(id); // нет вовсе — 404 отсюда
         if (existing.archived_at) throw residentArchived();
         throw new Error('UPDATE жителя не затронул строку без видимой причины');

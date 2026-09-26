@@ -66,6 +66,8 @@ export interface NewTicket {
   description?: string | null;
   /** Ответ на уточнение — по нему api выбирает правило маршрутизации. */
   detailCode?: string | null;
+  /** Дом заявки — обязателен, если у жителя несколько домов (docs/api.md, 0.13). */
+  houseId?: number;
 }
 
 /** Недоставленное уведомление о смене статуса (docs/api.md, /notifications). */
@@ -194,11 +196,13 @@ export class ApiClient {
     return house;
   }
 
-  /** Дом жителя; null — дом ещё неизвестен. */
-  async getHouse(residentId: number, signal?: AbortSignal): Promise<House | null> {
-    const path = `/residents/${residentId}/house`;
+  /** Дома квартир жителя, основной первым; [] — дом неизвестен. */
+  async getHouses(residentId: number, signal?: AbortSignal): Promise<House[]> {
+    const path = `/residents/${residentId}/houses`;
     const parsed = await this.request('GET', path, undefined, signal);
-    return (parsed as { house?: House | null }).house === null ? null : ApiClient.readHouse(parsed, path);
+    const houses = (parsed as { houses?: unknown }).houses;
+    if (!Array.isArray(houses)) throw new ApiClientError(200, null, `В ответе ${path} нет houses`);
+    return houses.map((house) => ApiClient.readHouse({ house }, path));
   }
 
   /** Дом по коду из QR; дом жителя заполняется, только если был неизвестен. */
@@ -250,6 +254,7 @@ export class ApiClient {
         place: ticket.place ?? null,
         description: ticket.description ?? null,
         detail_code: ticket.detailCode ?? null,
+        ...(ticket.houseId !== undefined ? { house_id: ticket.houseId } : {}),
       },
       signal,
     );

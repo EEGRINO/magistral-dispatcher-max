@@ -6,13 +6,13 @@ import { isActive } from '../types/domain';
 
 interface TicketsScreenProps {
   tickets: Ticket[];
-  house: House | null;
+  houses: House[];
   onOpenTicket: (id: number) => void;
   onReport: () => void;
   onHouseChat: () => void;
 }
 
-export function TicketsScreen({ tickets, house, onOpenTicket, onReport, onHouseChat }: TicketsScreenProps) {
+export function TicketsScreen({ tickets, houses, onOpenTicket, onReport, onHouseChat }: TicketsScreenProps) {
   const active = tickets.filter((ticket) => isActive(ticket.status));
   const closed = tickets.filter((ticket) => !isActive(ticket.status));
 
@@ -33,7 +33,9 @@ export function TicketsScreen({ tickets, house, onOpenTicket, onReport, onHouseC
       <div className="page__body">
         <Container>
           <Typography.Title>Мои заявки</Typography.Title>
-          <Typography.Body className="muted">{house?.address ?? 'Дом не указан — УК уточнит'}</Typography.Body>
+          <Typography.Body className="muted multiline">
+            {houses.length > 0 ? houses.map((house) => house.address).join('\n') : 'Дом не указан — УК уточнит'}
+          </Typography.Body>
         </Container>
 
         {tickets.length === 0 ? (

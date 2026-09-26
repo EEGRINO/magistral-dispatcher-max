@@ -55,6 +55,18 @@ export const notLinked = (): ApiError =>
 export const miniappDisabled = (): ApiError =>
   new ApiError(503, 'miniapp_disabled', 'Мини-приложение временно недоступно');
 
+/** У жителя квартиры в нескольких домах, а дом заявки не указан (0009). */
+export const houseRequired = (): ApiError =>
+  new ApiError(400, 'house_required', 'У жителя несколько домов — укажите house_id дома заявки');
+
+/** house_id заявки — не дом жителя: чужой дом заявкой не выбрать. */
+export const houseNotLinked = (): ApiError =>
+  new ApiError(400, 'house_not_linked', 'Этот дом не относится к квартирам жителя');
+
+/** Подъезд, квартира или договор без дома: квартира в resident_premises всегда с домом (0009). */
+export const premiseWithoutHouse = (): ApiError =>
+  new ApiError(400, 'house_required', 'Подъезд, этаж, квартира и договор задаются только вместе с домом');
+
 export const invalidReference = (message: string): ApiError =>
   new ApiError(400, 'invalid_reference', message);
 

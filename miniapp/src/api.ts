@@ -60,8 +60,10 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 }
 
 /** Дом жителя: адрес, чат, телефон АДС, газ, УК; null — дом неизвестен. */
-export async function loadHouse(): Promise<House | null> {
-  return (await call<{ house: House | null }>('GET', '/me')).house;
+export async function loadHouses(): Promise<House[]> {
+  const me = await call<{ house: House | null; houses?: House[] }>('GET', '/me');
+  // houses — с контракта 0.13; у api постарше есть только house.
+  return me.houses ?? (me.house ? [me.house] : []);
 }
 
 /** Мои заявки, новые сверху. */

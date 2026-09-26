@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Container, Panel, Spinner, Typography } from '@maxhub/max-ui';
-import { ApiError, cancelTicket, createTicket, hasInitData, loadHouse, loadTickets } from './api';
+import { ApiError, cancelTicket, createTicket, hasInitData, loadHouses, loadTickets } from './api';
 import type { TicketDraft } from './scenario';
 import { HouseChatScreen } from './screens/HouseChatScreen';
 import { NewTicketScreen } from './screens/NewTicketScreen';
@@ -33,7 +33,8 @@ function problemText(error: ApiError): string {
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'tickets' });
   const [load, setLoad] = useState<Load>({ state: 'loading' });
-  const [house, setHouse] = useState<House | null>(null);
+  /** Дома квартир жителя, основной первым; несколько — форма и «Чат дома» спрашивают дом. */
+  const [houses, setHouses] = useState<House[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
 
   const refresh = useCallback(async () => {
@@ -42,8 +43,8 @@ export function App() {
       return;
     }
     try {
-      const [loadedHouse, loadedTickets] = await Promise.all([loadHouse(), loadTickets()]);
-      setHouse(loadedHouse);
+      const [loadedHouses, loadedTickets] = await Promise.all([loadHouses(), loadTickets()]);
+      setHouses(loadedHouses);
       setTickets(loadedTickets);
       setLoad({ state: 'ready' });
     } catch (error) {
@@ -109,9 +110,9 @@ export function App() {
 
   switch (screen.name) {
     case 'report':
-      return <NewTicketScreen house={house} onCreate={submit} onClose={toList} />;
+      return <NewTicketScreen houses={houses} onCreate={submit} onClose={toList} />;
     case 'chat':
-      return <HouseChatScreen house={house} onBack={toList} />;
+      return <HouseChatScreen houses={houses} onBack={toList} />;
     case 'ticket': {
       const ticket = tickets.find((t) => t.id === screen.id);
       if (ticket) return <TicketScreen ticket={ticket} onBack={toList} onCancel={() => cancel(ticket.id)} />;
@@ -122,7 +123,7 @@ export function App() {
   return (
     <TicketsScreen
       tickets={tickets}
-      house={house}
+      houses={houses}
       onOpenTicket={(id) => setScreen({ name: 'ticket', id })}
       onReport={() => setScreen({ name: 'report' })}
       onHouseChat={() => setScreen({ name: 'chat' })}

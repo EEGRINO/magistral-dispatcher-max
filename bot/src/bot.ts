@@ -35,6 +35,7 @@ import {
   pendingDangerText,
   pendingInvite,
   recentEmergency,
+  pendingEmergencyHouse,
   recentSubmit,
   reportDraft,
 } from './dialog-state.js';
@@ -57,6 +58,9 @@ import {
   placeKeyboard,
   requestContactKeyboard,
   resumeDraftKeyboard,
+  emergencyHouseKeyboard,
+  houseChatChoiceKeyboard,
+  reportHouseKeyboard,
   typeKeyboard,
 } from './keyboards.js';
 import { log } from './logger.js';
@@ -308,10 +312,19 @@ const quickApiClient = new ApiClient(config.apiBaseUrl, 1500);
 
 const toDraftHouse = (house: House | null): DraftHouse | null =>
   house
-    ? { address: house.address, emergency_phone: house.emergency_phone, has_gas: house.has_gas, uk_name: house.uk_name }
+    ? {
+        id: house.id,
+        address: house.address,
+        emergency_phone: house.emergency_phone,
+        has_gas: house.has_gas,
+        uk_name: house.uk_name,
+      }
     : null;
 
-/** Дом жителя для экстренного текста; null — не вошёл, дома нет или api не успел. */
+/**
+ * Дом жителя для экстренного текста; null — не вошёл, дома нет, api не успел
+ * или домов несколько и какой — ещё неизвестно (тогда в тексте 112).
+ */
 async function houseForEmergency(userId: number | undefined): Promise<DraftHouse | null> {
   if (userId === undefined) return null;
   const draft = reportDraft.get(userId);
@@ -320,7 +333,8 @@ async function houseForEmergency(userId: number | undefined): Promise<DraftHouse
   try {
     const resident = await quickApiClient.findByMaxUser(userId, shutdown.signal);
     if (!resident) return null;
-    return toDraftHouse(await quickApiClient.getHouse(resident.id, shutdown.signal));
+    const houses = await quickApiClient.getHouses(resident.id, shutdown.signal);
+    return houses.length === 1 ? toDraftHouse(houses[0]!) : null;
   } catch (error) {
     if (isAbort(error)) throw error;
     log.warn('дом для экстренной инструкции не получен — в тексте 112', { user_id: userId, error: errorText(error) });
@@ -339,6 +353,7 @@ async function registerEmergency(
   userId: number | undefined,
   type: DangerType,
   description: string | null,
+  houseId?: number,
 ): Promise<void> {
   if (userId === undefined) {
     await send(target, messages.emergencyNeedsLogin, requestContactKeyboard);
@@ -358,7 +373,22 @@ async function registerEmergency(
       return;
     }
 
-    const ticket = await apiClient.createTicket(resident.id, { problemType: type, description }, shutdown.signal);
+    // Дом неизвестен, а квартир в нескольких домах — спрашиваем, в каком авария:
+    // заявка должна уйти в УК того дома (кейс 10 чек-листа). Инструкция уже у жителя.
+    if (houseId === undefined) {
+      const houses = await apiClient.getHouses(resident.id, shutdown.signal);
+      if (houses.length > 1) {
+        pendingEmergencyHouse.set(userId, { type, description });
+        await send(target, messages.askEmergencyHouse, emergencyHouseKeyboard(houses));
+        return;
+      }
+    }
+
+    const ticket = await apiClient.createTicket(
+      resident.id,
+      { problemType: type, description, ...(houseId !== undefined ? { houseId } : {}) },
+      shutdown.signal,
+    );
     recentEmergency.set(userId, { ...recentEmergency.get(userId), [type]: ticket.id });
     // warn, а не info: аварийную заявку в логе должно быть видно сразу.
     log.warn('аварийная заявка', { resident_id: resident.id, ticket_id: ticket.id, type });
@@ -391,7 +421,7 @@ async function handleDangerButton(
     reportDraft.delete(userId);
   }
   await send(target, messages.dangerInstructions(type, house, 'button'), [], { persistent: true });
-  await registerEmergency(target, userId, type, null);
+  await registerEmergency(target, userId, type, null, house?.id);
 }
 
 /**
@@ -447,8 +477,18 @@ async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): P
   const withLead = (text: string): string => (lead ? `${lead}\n${text}` : text);
 
   switch (draft.step) {
+    case 'house':
+      if (draft.houses && draft.houses.length > 0) {
+        await send(target, withLead(messages.askHouse), reportHouseKeyboard(draft.houses));
+        return;
+      }
+      break;
     case 'type':
-      await send(target, withLead(messages.askType), typeKeyboard(draft.house?.has_gas ?? true));
+      await send(
+        target,
+        withLead(messages.askType),
+        typeKeyboard(draft.house?.has_gas ?? true, (draft.history?.length ?? 0) > 0),
+      );
       return;
     case 'clarify':
       if (isClarifyType(draft.type)) {
@@ -587,9 +627,9 @@ async function startReport(
     return;
   }
 
-  let house: House | null;
+  let houses: House[];
   try {
-    house = await apiClient.getHouse(resident.id, shutdown.signal);
+    houses = await apiClient.getHouses(resident.id, shutdown.signal);
   } catch (error) {
     await serviceUnavailable(target, 'при «Сообщить о проблеме»', { resident_id: resident.id }, error);
     return;
@@ -597,7 +637,13 @@ async function startReport(
 
   // Новый сценарий — ожидание адреса больше не актуально.
   awaitingAddress.delete(userId);
-  await goTo(target, userId, { residentId: resident.id, house: toDraftHouse(house), step: 'type' }, 'type');
+  if (houses.length > 1) {
+    // Квартиры в нескольких домах — сначала «В каком доме?» (кейс 10 чек-листа).
+    const options = houses.map((house) => toDraftHouse(house)!);
+    await goTo(target, userId, { residentId: resident.id, house: null, houses: options, step: 'house' }, 'house');
+    return;
+  }
+  await goTo(target, userId, { residentId: resident.id, house: toDraftHouse(houses[0] ?? null), step: 'type' }, 'type');
 }
 
 /** Отправить заявку из черновика. При сбое черновик остаётся — можно нажать ещё раз. */
@@ -618,6 +664,7 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
         place: draft.place ?? null,
         description: draft.description ?? null,
         detailCode: draft.detail ?? null,
+        ...(draft.house ? { houseId: draft.house.id } : {}),
       },
       shutdown.signal,
     );
@@ -682,6 +729,25 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
   rememberStepBefore(userId, draft);
 
   const [kind, value = ''] = payload.split(':');
+
+  // «В каком доме проблема?»
+  if (kind === 'rh') {
+    const chosen = draft.step === 'house' ? draft.houses?.find((house) => house.id === Number(value)) : undefined;
+    if (!chosen) {
+      reportDraft.set(userId, draft);
+      await askStep(target, draft, messages.chooseButton);
+      return;
+    }
+    await goTo(target, userId, { residentId: draft.residentId, house: chosen, step: 'type' }, 'type');
+    return;
+  }
+
+  // Дом ещё не выбран — кнопки дальних шагов из старых сообщений не принимаем.
+  if (draft.step === 'house') {
+    reportDraft.set(userId, draft);
+    await askStep(target, draft, messages.chooseButton);
+    return;
+  }
 
   // «Что случилось?»
   if (kind === 'type' && isProblemType(value)) {
@@ -925,8 +991,11 @@ async function applyInvite(target: SendTarget, resident: Resident, code: string,
   }
 }
 
-/** Кнопка «Чат дома»: дом известен — ссылка; нет — просим адрес. */
-async function handleHouseChat(target: SendTarget, userId: number | undefined): Promise<void> {
+/**
+ * Кнопка «Чат дома»: дом известен — ссылка; нет — просим адрес. Домов
+ * несколько — сначала выбор дома (кейс 10 чек-листа); houseId — уже выбран.
+ */
+async function handleHouseChat(target: SendTarget, userId: number | undefined, houseId?: number): Promise<void> {
   if (userId === undefined) {
     await askContact(target);
     return;
@@ -943,14 +1012,22 @@ async function handleHouseChat(target: SendTarget, userId: number | undefined): 
   // ушёл бы в описание заявки.
   reportDraft.delete(userId);
 
-  let house: House | null;
+  let houses: House[];
   try {
-    house = await apiClient.getHouse(resident.id, shutdown.signal);
+    houses = await apiClient.getHouses(resident.id, shutdown.signal);
   } catch (error) {
     await serviceUnavailable(target, 'при «Чат дома»', { resident_id: resident.id }, error);
     return;
   }
 
+  if (houses.length > 1 && houseId === undefined) {
+    awaitingAddress.delete(userId);
+    await send(target, messages.chooseHouseChat, houseChatChoiceKeyboard(houses));
+    return;
+  }
+
+  // Выбранного дома у жителя уже нет (УК убрала квартиру) — первый из его домов.
+  const house = houses.find((h) => h.id === houseId) ?? houses[0];
   if (house) {
     awaitingAddress.delete(userId);
     await sendHouseChat(target, house);
@@ -1258,8 +1335,26 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
     return;
   }
 
+  // Выбор дома — «Чат дома» (hc:<id>) и аварийная заявка (eh:<id>), кейс 10.
+  if (prefix === 'hc' && type) {
+    await answer('Чат дома');
+    await handleHouseChat(target, userId, Number(type));
+    return;
+  }
+  if (prefix === 'eh' && type && type !== 'cancel') {
+    await answer('Принято');
+    const pending = userId === undefined ? undefined : pendingEmergencyHouse.get(userId);
+    if (userId === undefined || !pending) {
+      await showMenu(target, userId, messages.draftExpired);
+      return;
+    }
+    pendingEmergencyHouse.delete(userId);
+    await registerEmergency(target, userId, pending.type, pending.description, Number(type));
+    return;
+  }
+
   if (
-    /^(type|clar|place|src|own):/.test(payload) ||
+    /^(rh|type|clar|place|src|own):/.test(payload) ||
     payload === Action.skipDescription ||
     payload === Action.sendTicket ||
     payload === Action.cancelTicket ||
@@ -1346,6 +1441,13 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
     case Action.houseChat: {
       await answer('Чат дома');
       await handleHouseChat(target, userId);
+      return;
+    }
+
+    case Action.cancelEmergencyHouse: {
+      await answer('Отменено');
+      if (userId !== undefined) pendingEmergencyHouse.delete(userId);
+      await showMenu(target, userId, messages.emergencyHouseCancelled);
       return;
     }
 

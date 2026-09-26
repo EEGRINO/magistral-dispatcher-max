@@ -1,14 +1,43 @@
+import { useState } from 'react';
 import { Button, CellList, CellSimple, Container, Panel, Typography } from '@maxhub/max-ui';
 import { openMaxLink } from '../bridge';
 import type { House } from '../types/domain';
 
 interface HouseChatScreenProps {
-  house: House | null;
+  /** Дома жителя; несколько — сначала выбор дома (кейс 10 чек-листа). */
+  houses: House[];
   onBack: () => void;
 }
 
 /** «Чат дома»: адрес и переход в групповой чат, если УК его завела. */
-export function HouseChatScreen({ house, onBack }: HouseChatScreenProps) {
+export function HouseChatScreen({ houses, onBack }: HouseChatScreenProps) {
+  const manyHouses = houses.length > 1;
+  const [chosen, setChosen] = useState<House | null>(null);
+  const house = manyHouses ? chosen : (houses[0] ?? null);
+
+  if (manyHouses && !house) {
+    return (
+      <Panel mode="secondary" className="page">
+        <div className="page__body">
+          <Container>
+            <Typography.Title>Чат дома</Typography.Title>
+            <Typography.Body className="muted">Выберите дом — откроем его чат.</Typography.Body>
+          </Container>
+          <CellList mode="island">
+            {houses.map((option) => (
+              <CellSimple key={option.id} title={option.address} showChevron onClick={() => setChosen(option)} />
+            ))}
+          </CellList>
+        </div>
+        <div className="page__footer">
+          <Button variant="secondary" size="large" stretched onClick={onBack}>
+            Назад к заявкам
+          </Button>
+        </div>
+      </Panel>
+    );
+  }
+
   const chatLink = house?.chat_link ?? null;
 
   return (
@@ -43,7 +72,12 @@ export function HouseChatScreen({ house, onBack }: HouseChatScreenProps) {
             Перейти в чат дома
           </Button>
         )}
-        <Button variant="secondary" size="large" stretched onClick={onBack}>
+        {manyHouses && (
+          <Button variant="secondary" size="large" stretched onClick={() => setChosen(null)}>
+            « Другой дом
+          </Button>
+        )}
+        <Button variant={manyHouses ? 'ghost' : 'secondary'} size="large" stretched onClick={onBack}>
           Назад к заявкам
         </Button>
       </div>

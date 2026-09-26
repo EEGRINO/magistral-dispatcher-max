@@ -58,6 +58,8 @@ export type OwnerZone = 'leak' | 'electricity';
 
 /** Дом жителя — снимок на время заявки: адрес, телефон АДС, газ, название УК. */
 export interface DraftHouse {
+  /** id дома — уходит в заявку: у жителя может быть несколько домов (0009). */
+  id: number;
   address: string;
   emergency_phone: string | null;
   has_gas: boolean;
@@ -67,9 +69,15 @@ export interface DraftHouse {
 /** Черновик заявки — в памяти бота, как ожидание адреса. */
 export interface ReportDraft {
   residentId: number;
-  /** null — дом жителя неизвестен. */
+  /** null — дом жителя неизвестен или ещё не выбран. */
   house: DraftHouse | null;
-  step: 'type' | 'clarify' | 'place' | 'leak_source' | 'owner' | 'description' | 'confirm';
+  /**
+   * Шаг house — «В каком доме проблема?»: первый, только у жителя с
+   * квартирами в нескольких домах (кейс 10 чек-листа, решение 26.09.2026).
+   */
+  step: 'house' | 'type' | 'clarify' | 'place' | 'leak_source' | 'owner' | 'description' | 'confirm';
+  /** Из каких домов выбирать на шаге house. */
+  houses?: DraftHouse[];
   type?: Exclude<ProblemType, 'gas'>;
   place?: Place;
   /** На экране зоны собственника — чьей. */

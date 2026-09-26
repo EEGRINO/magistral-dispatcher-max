@@ -28,6 +28,8 @@ export const Action = {
   /** Незаконченная заявка: продолжить с того же шага или начать заново. */
   resumeDraft: 'draft:resume',
   restartDraft: 'draft:restart',
+  /** «Отмена» выбора дома аварии: заявку не отправлять. */
+  cancelEmergencyHouse: 'eh:cancel',
 } as const;
 
 /**
@@ -117,6 +119,23 @@ export function houseChatKeyboard(chatLink: string | null, botUsername: string |
 
 export const cancelAddressKeyboard: MaxAttachment[] = keyboard([callback('Отмена', Action.cancelAddress)]);
 
+/**
+ * Выбор дома у жителя с квартирами в нескольких домах (кейс 10 чек-листа):
+ * rh:<id> — дом заявки, hc:<id> — «Чат дома», eh:<id> — дом аварийной заявки.
+ */
+export type HouseChoice = 'rh' | 'hc' | 'eh';
+
+const houseButtons = (houses: { id: number; address: string }[], kind: HouseChoice): Button[][] =>
+  houses.map((house) => callback(`🏠 ${house.address}`, `${kind}:${house.id}`));
+
+export function houseChatChoiceKeyboard(houses: { id: number; address: string }[]): MaxAttachment[] {
+  return keyboard([...houseButtons(houses, 'hc'), callback('« Меню', Action.menu)]);
+}
+
+export function emergencyHouseKeyboard(houses: { id: number; address: string }[]): MaxAttachment[] {
+  return keyboard([...houseButtons(houses, 'eh'), callback('Отмена', Action.cancelEmergencyHouse)]);
+}
+
 /** «Сообщить о проблеме» при незаконченной заявке (кейс 7 чек-листа). */
 export const resumeDraftKeyboard: MaxAttachment[] = keyboard([
   callback('Продолжить', Action.resumeDraft),
@@ -143,11 +162,23 @@ const cancelTicketRow: Button[] = callback('Отмена', Action.cancelTicket);
 /** «« Назад» — на каждом шаге заявки после первого (решение 26.09.2026). */
 const backRow: Button[] = callback('« Назад', Action.back);
 
-/** «Что случилось?». Дому без газа кнопку «Запах газа» не показываем (rules.yaml, fallback_policy). */
-export function typeKeyboard(hasGas: boolean): MaxAttachment[] {
+/** «В каком доме проблема?» — первый шаг, если домов несколько. */
+export function reportHouseKeyboard(houses: { id: number; address: string }[]): MaxAttachment[] {
+  return keyboard([...houseButtons(houses, 'rh'), cancelTicketRow]);
+}
+
+/**
+ * «Что случилось?». Дому без газа кнопку «Запах газа» не показываем (rules.yaml, fallback_policy).
+ * withBack — шаг не первый (перед ним выбирали дом).
+ */
+export function typeKeyboard(hasGas: boolean, withBack = false): MaxAttachment[] {
   const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => hasGas || type !== 'gas');
   // На первом шаге только «Отмена»: «Назад» делал бы то же самое — вернул в меню.
-  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), cancelTicketRow]);
+  return keyboard([
+    ...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))),
+    ...(withBack ? [backRow] : []),
+    cancelTicketRow,
+  ]);
 }
 
 /** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */

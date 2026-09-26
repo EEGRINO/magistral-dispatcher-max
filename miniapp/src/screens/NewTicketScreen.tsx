@@ -17,6 +17,8 @@ import type { DangerType, House, Place, ProblemType, Ticket } from '../types/dom
 import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, TICKET_STATUS_LABEL } from '../types/domain';
 
 type Step =
+  /** Первый шаг, только если у жителя квартиры в нескольких домах (кейс 10 чек-листа). */
+  | { name: 'house' }
   | { name: 'type' }
   | { name: 'clarify'; type: ClarifyType }
   | { name: 'place'; type: Exclude<ProblemType, 'gas'> }
@@ -37,14 +39,18 @@ interface Answers {
 }
 
 interface NewTicketScreenProps {
-  house: House | null;
+  /** Дома жителя; несколько — сначала «В каком доме проблема?». */
+  houses: House[];
   /** Регистрирует заявку в api и возвращает её с номером. */
   onCreate: (draft: TicketDraft) => Promise<Ticket>;
   onClose: () => void;
 }
 
-export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenProps) {
-  const [step, setStep] = useState<Step>({ name: 'type' });
+export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenProps) {
+  const manyHouses = houses.length > 1;
+  const [step, setStep] = useState<Step>(manyHouses ? { name: 'house' } : { name: 'type' });
+  /** Дом заявки: единственный или выбранный на первом шаге; null — неизвестен. */
+  const [house, setHouse] = useState<House | null>(manyHouses ? null : (houses[0] ?? null));
   const [answers, setAnswers] = useState<Answers>({});
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -84,7 +90,13 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
     dangerStarted.current = true;
     setStep({ name: 'danger', danger, ticket: null, failed: false });
     const sameDanger = (current: Step) => current.name === 'danger' && current.danger === danger;
-    onCreate({ problem_type: danger, place: null, detail_code: null, description: null })
+    onCreate({
+      problem_type: danger,
+      place: null,
+      detail_code: null,
+      description: null,
+      ...(house ? { house_id: house.id } : {}),
+    })
       .then((ticket) => setStep((current) => (sameDanger(current) ? { ...current, ticket } as Step : current)))
       .catch(() => setStep((current) => (sameDanger(current) ? { ...current, failed: true } as Step : current)));
   }
@@ -169,6 +181,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
         place: answers.place ?? null,
         detail_code: answers.detail ?? null,
         description: answers.description ?? null,
+        ...(house ? { house_id: house.id } : {}),
       });
       // «Другое / не уверен» — заявку классифицирует диспетчер, об этом говорим жителю.
       setStep({ name: 'done', ticket, manual: answers.type === 'other' });
@@ -181,12 +194,29 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   }
 
   switch (step.name) {
+    case 'house':
+      return (
+        // Первый шаг — только «Отмена».
+        <Question title="В каком доме проблема?" onCancel={onClose}>
+          {houses.map((option) => (
+            <Option
+              key={option.id}
+              label={option.address}
+              onClick={() => {
+                setHouse(option);
+                go({ name: 'type' });
+              }}
+            />
+          ))}
+        </Question>
+      );
+
     case 'type': {
       // Дому без газа кнопку «Запах газа» не показываем; дом неизвестен — показываем.
       const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => house?.has_gas !== false || type !== 'gas');
       return (
-        // На первом шаге только «Отмена»: «Назад» закрыл бы форму так же.
-        <Question title="Выберите, что случилось:" onCancel={onClose}>
+        // Первый шаг — только «Отмена» («Назад» закрыл бы форму так же); после выбора дома — и «Назад».
+        <Question title="Выберите, что случилось:" onCancel={onClose} onBack={manyHouses ? back : undefined}>
           {types.map((type) => (
             <Option key={type} label={PROBLEM_TYPES[type]} onClick={() => chooseType(type)} />
           ))}

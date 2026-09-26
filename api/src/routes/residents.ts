@@ -17,6 +17,7 @@ import {
   HouseByAddressBody,
   HouseByInviteBody,
   HouseByInviteResponse,
+  HouseListResponse,
   HouseResponse,
   LinkByPhoneBody,
   MaxUserIdParams,
@@ -28,55 +29,83 @@ import {
   type ResidentRow,
 } from '../schemas.js';
 
-const RESIDENT_COLUMNS = 'id, house_id, max_chat_id, max_user_id, created_at';
+/**
+ * house_id жителя — дом основной (первой) квартиры, для клиентов, которые
+ * знают один дом (0009). Все дома — housesOfResident.
+ */
+const RESIDENT_COLUMNS = `id, max_chat_id, max_user_id, created_at,
+  (SELECT p.house_id FROM resident_premises p WHERE p.resident_id = residents.id ORDER BY p.id LIMIT 1) AS house_id`;
 
 /**
- * Дом жителя: undefined — жителя нет, null — житель есть, дом неизвестен.
+ * Дома жителя по его квартирам, основной первым; две квартиры в одном доме —
+ * один дом. undefined — жителя нет, [] — дом неизвестен.
  */
-export async function houseOfResident(residentId: number): Promise<HouseDto | null | undefined> {
+export async function housesOfResident(residentId: number): Promise<HouseDto[] | undefined> {
+  const exists = await pool.query('SELECT 1 FROM residents WHERE id = $1', [residentId]);
+  if (exists.rowCount === 0) return undefined;
+
   const { rows } = await pool.query<{
-    house_id: number | null;
-    address: string | null;
+    id: number;
+    address: string;
     chat_link: string | null;
     emergency_phone: string | null;
-    has_gas: boolean | null;
+    has_gas: boolean;
     uk_name: string | null;
     timezone: string | null;
   }>(
-    `SELECT h.id AS house_id, h.address, h.chat_link, h.emergency_phone, h.has_gas,
-            o.name AS uk_name, h.timezone
-       FROM residents r
-       LEFT JOIN houses h ON h.id = r.house_id
+    `SELECT h.id, h.address, h.chat_link, h.emergency_phone, h.has_gas, o.name AS uk_name, h.timezone
+       FROM resident_premises p
+       JOIN houses h ON h.id = p.house_id
        LEFT JOIN organizations o ON o.id = h.organization_id
-      WHERE r.id = $1`,
+      WHERE p.resident_id = $1
+      GROUP BY h.id, o.name
+      ORDER BY min(p.id)`,
     [residentId],
   );
 
-  const row = rows[0];
-  if (!row) return undefined;
-  if (row.house_id === null || row.address === null) return null;
-  return {
-    id: row.house_id,
-    address: row.address,
-    chat_link: row.chat_link,
-    emergency_phone: row.emergency_phone,
-    has_gas: row.has_gas ?? true,
-    uk_name: row.uk_name,
-    timezone: row.timezone ?? DEFAULT_TIMEZONE,
-  };
+  return rows.map((row) => ({ ...row, timezone: row.timezone ?? DEFAULT_TIMEZONE }));
 }
 
 /**
- * Записать дом жителю, только если его дом ещё неизвестен. Данные УК главнее
- * того, что пришло из QR или ввёл сам житель (решение 24.09.2026): уже
- * указанный дом не перезаписываем. Условие в WHERE делает это атомарно.
+ * Дом основной квартиры: undefined — жителя нет, null — житель есть, дом неизвестен.
+ */
+export async function houseOfResident(residentId: number): Promise<HouseDto | null | undefined> {
+  const houses = await housesOfResident(residentId);
+  return houses === undefined ? undefined : (houses[0] ?? null);
+}
+
+/**
+ * Завести жителю квартиру в этом доме, только если ни одной квартиры у него
+ * ещё нет. Данные УК главнее того, что пришло из QR или ввёл сам житель
+ * (решение 24.09.2026): известные дома не трогаем. Второй дом житель себе
+ * не добавляет — его заводит УК.
  */
 async function assignHouseIfEmpty(residentId: number, houseId: number): Promise<void> {
   await pool.query(
-    `UPDATE residents SET house_id = $2, updated_at = now()
-      WHERE id = $1 AND house_id IS NULL AND archived_at IS NULL`,
+    `INSERT INTO resident_premises (resident_id, house_id)
+     SELECT $1, $2
+      WHERE EXISTS (SELECT 1 FROM residents WHERE id = $1 AND archived_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM resident_premises WHERE resident_id = $1)
+     ON CONFLICT DO NOTHING`,
     [residentId, houseId],
   );
+}
+
+/**
+ * Дом по QR или адресу для жителя: свой — он и есть; домов нет — этот
+ * становится домом жителя; иначе — дом основной квартиры (данные УК главнее).
+ */
+async function resolveHouse(residentId: number, houseId: number): Promise<HouseDto | undefined> {
+  let houses = await housesOfResident(residentId);
+  if (houses === undefined) return undefined;
+  if (houses.length === 0) {
+    await assignHouseIfEmpty(residentId, houseId);
+    houses = (await housesOfResident(residentId)) ?? [];
+  }
+  const house = houses.find((h) => h.id === houseId) ?? houses[0];
+  // После assignHouseIfEmpty дом известен всегда: либо был, либо записан.
+  if (!house) throw new Error('у жителя нет дома после записи из QR или адреса');
+  return house;
 }
 
 export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
@@ -184,6 +213,22 @@ export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
     },
   );
 
+  app.get(
+    '/residents/:id/houses',
+    {
+      schema: {
+        description: 'Дома жителя по его квартирам, основной первым; пусто — дом неизвестен',
+        params: ResidentIdParams,
+        response: { 200: HouseListResponse, 404: ErrorResponse },
+      },
+    },
+    async (request) => {
+      const houses = await housesOfResident(request.params.id);
+      if (houses === undefined) throw notFound(`Житель ${request.params.id} не найден`);
+      return { houses };
+    },
+  );
+
   app.post(
     '/residents/:id/house-by-invite',
     {
@@ -203,12 +248,8 @@ export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
       const invited = rows[0];
       if (!invited) throw houseNotFound('Дом с таким кодом не найден');
 
-      await assignHouseIfEmpty(id, invited.id);
-
-      const house = await houseOfResident(id);
+      const house = await resolveHouse(id, invited.id);
       if (house === undefined) throw notFound(`Житель ${id} не найден`);
-      // После assignHouseIfEmpty дом известен всегда: либо был, либо записан.
-      if (house === null) throw new Error('дом жителя пуст после записи из QR');
 
       const mismatch = house.id !== invited.id;
       if (mismatch) {
@@ -245,9 +286,7 @@ export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
       const found = rows[0];
       if (!found) throw houseNotFound('Дом по этому адресу не найден');
 
-      await assignHouseIfEmpty(id, found.id);
-
-      const house = await houseOfResident(id);
+      const house = await resolveHouse(id, found.id);
       if (house === undefined) throw notFound(`Житель ${id} не найден`);
       return { house };
     },

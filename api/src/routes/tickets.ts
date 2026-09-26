@@ -39,8 +39,15 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
       },
     },
     async (request, reply) => {
-      const { resident_id, problem_type, place = null, description = null, detail_code = null } = request.body;
-      const ticket = await createTicket(rules, request.log, { resident_id, problem_type, place, description, detail_code });
+      const { resident_id, problem_type, place = null, description = null, detail_code = null, house_id } = request.body;
+      const ticket = await createTicket(rules, request.log, {
+        resident_id,
+        problem_type,
+        place,
+        description,
+        detail_code,
+        house_id,
+      });
       return reply.code(201).send({ ticket: ticketDto(rules, ticket) });
     },
   );

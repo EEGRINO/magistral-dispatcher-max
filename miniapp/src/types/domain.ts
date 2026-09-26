@@ -76,6 +76,8 @@ export interface Ticket {
 
 /** Дом жителя — как у бота в черновике заявки (bot/src/report.ts, DraftHouse). */
 export interface House {
+  /** id дома — уходит в заявку: у жителя может быть несколько домов (docs/api.md, 0.13). */
+  id: number;
   address: string;
   chat_link: string | null;
   emergency_phone: string | null;
