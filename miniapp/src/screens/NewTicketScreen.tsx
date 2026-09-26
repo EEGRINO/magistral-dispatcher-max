@@ -48,6 +48,27 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  /** Пройденные шаги с ответами на тот момент — для «Назад» (решение 26.09.2026). */
+  const [history, setHistory] = useState<{ step: Step; answers: Answers }[]>([]);
+
+  /** Шаг вперёд: текущий шаг и ответы — в историю, «Назад» вернёт их как были. */
+  function go(next: Step, nextAnswers: Answers = answers) {
+    setHistory((current) => [...current, { step, answers }]);
+    setAnswers(nextAnswers);
+    setStep(next);
+  }
+
+  /** «Назад»: предыдущий шаг; с первого шага — закрыть форму. */
+  function back() {
+    const previous = history[history.length - 1];
+    if (!previous) {
+      onClose();
+      return;
+    }
+    setHistory((current) => current.slice(0, -1));
+    setAnswers(previous.answers);
+    setStep(previous.step);
+  }
 
   // Авария: инструкция — сразу, не дожидаясь api (как у бота: что делать при
   // газе, человек должен узнать, даже если сервер не ответил). Заявка
@@ -61,8 +82,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   }
 
   function afterPlace(next: Answers) {
-    setAnswers(next);
-    setStep(next.type === 'leak' && next.place === 'in_apartment' ? { name: 'leak_source' } : { name: 'description' });
+    go(next.type === 'leak' && next.place === 'in_apartment' ? { name: 'leak_source' } : { name: 'description' }, next);
   }
 
   /** К «где?»; если место у типа одно (лифт — подъезд), не спрашиваем. */
@@ -72,8 +92,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
       afterPlace({ ...next, place: places[0] });
       return;
     }
-    setAnswers(next);
-    setStep({ name: 'place', type: next.type });
+    go({ name: 'place', type: next.type }, next);
   }
 
   function chooseType(type: ProblemType) {
@@ -84,8 +103,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
     // Житель передумал с типом — прежние ответы сбрасываются.
     const next = { type };
     if (isClarifyType(type)) {
-      setAnswers(next);
-      setStep({ name: 'clarify', type });
+      go({ name: 'clarify', type }, next);
     } else {
       toPlace(next);
     }
@@ -101,8 +119,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
         toPlace({ type, detail: outcome.detail });
         return;
       case 'owner':
-        setAnswers({ type, detail: outcome.detail, place: outcome.place });
-        setStep({ name: 'owner', zone: 'electricity' });
+        go({ name: 'owner', zone: 'electricity' }, { type, detail: outcome.detail, place: outcome.place });
         return;
       case 'fixed_place':
         afterPlace({ type, detail: outcome.detail, place: outcome.place });
@@ -117,22 +134,19 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
     }
     if (action === 'send') {
       // Ответ о границе мог быть ошибочным — не оставляем в тупике (решение 24.09.2026).
-      setAnswers({ ...answers, detail: 'owner_override' });
-      setStep({ name: 'description' });
+      go({ name: 'description' }, { ...answers, detail: 'owner_override' });
       return;
     }
     if (zone === 'electricity') {
       toDanger('exposed_wiring');
     } else {
       // Течёт сам кран или он не перекрывается — это уже общее имущество.
-      setAnswers({ ...answers, detail: 'valve' });
-      setStep({ name: 'description' });
+      go({ name: 'description' }, { ...answers, detail: 'valve' });
     }
   }
 
   function toConfirm(description: string | null) {
-    setAnswers({ ...answers, description });
-    setStep({ name: 'confirm' });
+    go({ name: 'confirm' }, { ...answers, description });
   }
 
   async function submit() {
@@ -161,7 +175,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
       // Дому без газа кнопку «Запах газа» не показываем; дом неизвестен — показываем.
       const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => house?.has_gas !== false || type !== 'gas');
       return (
-        <Question title="Выберите, что случилось:" onCancel={onClose}>
+        <Question title="Выберите, что случилось:" onCancel={onClose} onBack={back}>
           {types.map((type) => (
             <Option key={type} label={PROBLEM_TYPES[type]} onClick={() => chooseType(type)} />
           ))}
@@ -171,7 +185,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
 
     case 'clarify':
       return (
-        <Question title={CLARIFY[step.type].question} onCancel={onClose}>
+        <Question title={CLARIFY[step.type].question} onCancel={onClose} onBack={back}>
           {CLARIFY[step.type].options.map((option) => (
             <Option key={option.label} label={option.label} onClick={() => chooseClarify(option.outcome)} />
           ))}
@@ -180,7 +194,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
 
     case 'place':
       return (
-        <Question title="Уточните, где именно:" onCancel={onClose}>
+        <Question title="Уточните, где именно:" onCancel={onClose} onBack={back}>
           {PLACES_BY_TYPE[step.type].map((place) => (
             <Option key={place} label={PLACES[place]} onClick={() => afterPlace({ ...answers, place })} />
           ))}
@@ -189,15 +203,17 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
 
     case 'leak_source':
       return (
-        <Question title="Откуда именно течёт?" onCancel={onClose}>
+        <Question title="Откуда именно течёт?" onCancel={onClose} onBack={back}>
           {LEAK_SOURCES.map((source) => (
             <Option
               key={source.detail}
               label={source.label}
-              onClick={() => {
-                setAnswers({ ...answers, detail: source.detail });
-                setStep(source.owner ? { name: 'owner', zone: 'leak' } : { name: 'description' });
-              }}
+              onClick={() =>
+                go(source.owner ? { name: 'owner', zone: 'leak' } : { name: 'description' }, {
+                  ...answers,
+                  detail: source.detail,
+                })
+              }
             />
           ))}
         </Question>
@@ -213,6 +229,9 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
               </Button>
               <Button variant="secondary" size="large" stretched onClick={() => chooseOwner('send', step.zone)}>
                 📨 Всё равно передать в УК
+              </Button>
+              <Button variant="ghost" size="large" stretched onClick={back}>
+                « Назад
               </Button>
             </>
           }
@@ -248,8 +267,8 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
               <Button variant="secondary" size="large" stretched onClick={() => toConfirm(null)}>
                 Без описания
               </Button>
-              <Button variant="ghost" size="large" stretched onClick={onClose}>
-                Отмена
+              <Button variant="ghost" size="large" stretched onClick={back}>
+                « Назад
               </Button>
             </>
           }
@@ -274,7 +293,10 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
               <Button variant="primary" size="large" stretched disabled={sending} onClick={() => void submit()}>
                 {sending ? 'Отправляем…' : 'Отправить'}
               </Button>
-              <Button variant="secondary" size="large" stretched onClick={onClose}>
+              <Button variant="secondary" size="large" stretched disabled={sending} onClick={back}>
+                « Назад
+              </Button>
+              <Button variant="ghost" size="large" stretched disabled={sending} onClick={onClose}>
                 Отмена
               </Button>
             </>
@@ -361,13 +383,28 @@ function Page({ children, footer }: { children: ReactNode; footer: ReactNode }) 
 }
 
 /** Шаг-вопрос: заголовок, варианты списком, «Отмена» — на каждом шаге, как у бота. */
-function Question({ title, children, onCancel }: { title: string; children: ReactNode; onCancel: () => void }) {
+function Question({
+  title,
+  children,
+  onCancel,
+  onBack,
+}: {
+  title: string;
+  children: ReactNode;
+  onCancel: () => void;
+  onBack: () => void;
+}) {
   return (
     <Page
       footer={
-        <Button variant="secondary" size="large" stretched onClick={onCancel}>
-          Отмена
-        </Button>
+        <>
+          <Button variant="secondary" size="large" stretched onClick={onBack}>
+            « Назад
+          </Button>
+          <Button variant="ghost" size="large" stretched onClick={onCancel}>
+            Отмена
+          </Button>
+        </>
       }
     >
       <Container>
