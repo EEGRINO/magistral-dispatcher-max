@@ -27,7 +27,15 @@
 import { ApiClient, ApiClientError, type House, type Resident, type Ticket } from './api-client.js';
 import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
-import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency, reportDraft } from './dialog-state.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import {
+  awaitingAddress,
+  liveMessage,
+  pendingDangerText,
+  pendingInvite,
+  recentEmergency,
+  reportDraft,
+} from './dialog-state.js';
 import { detectDanger, detectFire, isDangerType, type DangerType } from './emergency.js';
 import { parseStatusCommand, parseTicketNumber } from './status.js';
 import {
@@ -135,8 +143,85 @@ async function getBotUsername(): Promise<string | null> {
 
 // ── отправка ──────────────────────────────────────────────────────────────
 
-function send(target: SendTarget, text: string, attachments?: MaxAttachment[]): Promise<void> {
-  return api.sendMessage(target, text, shutdown.signal, attachments);
+/**
+ * Нажатие кнопки, которое сейчас обрабатывается. Первый ответ бота ЗАМЕНЯЕТ
+ * сообщение с нажатой кнопкой (ответ на нажатие с полем message, docs/max-notes.md)
+ * — в чате остаётся одно «живое» сообщение, а не лента устаревших вопросов
+ * (решение 26.09.2026). Остальные ответы на то же нажатие — новыми сообщениями.
+ */
+interface CallbackScope {
+  callbackId: string;
+  /** Короткое уведомление на нажатие — уходит вместе с первым ответом. */
+  notification: string | null;
+  answered: boolean;
+  /** mid сообщения с нажатой кнопкой — после замены оно «живое». */
+  pressedMid: string | null;
+}
+const callbackScope = new AsyncLocalStorage<CallbackScope>();
+
+interface SendOptions {
+  /**
+   * Сообщение, которое бот не трогает: номер заявки, инструкция при аварии,
+   * уведомление. Его не удаляют и не заменяют следующим шагом.
+   */
+  persistent?: boolean;
+}
+
+async function send(
+  target: SendTarget,
+  text: string,
+  attachments: MaxAttachment[] = [],
+  options: SendOptions = {},
+): Promise<void> {
+  const chatId = target.chatId;
+  const scope = callbackScope.getStore();
+
+  if (scope && !scope.answered) {
+    scope.answered = true;
+    try {
+      await api.answerCallback(
+        scope.callbackId,
+        { notification: scope.notification ?? undefined, message: { text, attachments } },
+        shutdown.signal,
+      );
+      if (chatId !== undefined) {
+        if (!options.persistent && scope.pressedMid) liveMessage.set(chatId, scope.pressedMid);
+        else liveMessage.delete(chatId);
+      }
+      return;
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      // Заменить не вышло — ответ жителю важнее: отправим новым сообщением.
+      log.warn('замена сообщения не удалась — отправляем новым', { error: errorText(error) });
+    }
+  }
+
+  const mid = await api.sendMessage(target, text, shutdown.signal, attachments);
+  if (chatId !== undefined && !options.persistent && mid) liveMessage.set(chatId, mid);
+}
+
+/**
+ * Житель ответил текстом (или контактом) — прежний вопрос бота больше не нужен:
+ * удаляем его, следующий шаг придёт новым сообщением. Не вышло (нет прав,
+ * уже удалено) — не беда: ответ жителю важнее.
+ */
+async function dropLiveMessage(target: SendTarget): Promise<void> {
+  if (target.chatId === undefined) return;
+  const mid = liveMessage.get(target.chatId);
+  if (!mid) return;
+  liveMessage.delete(target.chatId);
+  try {
+    await api.deleteMessage(mid, shutdown.signal);
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    log.debug('старое сообщение бота не удалено', { error: errorText(error) });
+  }
+}
+
+/** Сообщение, которое остаётся в чате (номер заявки, уведомление), и под ним — меню. */
+async function sendKeptThenMenu(target: SendTarget, text: string): Promise<void> {
+  await send(target, text, [], { persistent: true });
+  await sendMenu(target);
 }
 
 function askContact(target: SendTarget): Promise<void> {
@@ -164,7 +249,9 @@ async function serviceUnavailable(
 ): Promise<void> {
   if (isAbort(error)) throw error;
   log.error(`api недоступен ${where}`, { ...meta, error: errorText(error) });
-  await send(target, messages.serviceUnavailable);
+  // С меню: если это ответ на кнопку, он заменит меню — без кнопок житель
+  // не смог бы даже повторить.
+  await send(target, messages.serviceUnavailable, menuKeyboard(await getBotUsername()));
 }
 
 /** Житель по user_id; undefined — api недоступен (ответ жителю уже отправлен). */
@@ -260,8 +347,11 @@ async function registerEmergency(
     await send(
       target,
       messages.emergencyTicketCreated(ticket),
-      type === 'gas_smell' ? gasCalledKeyboard : undefined,
+      type === 'gas_smell' ? gasCalledKeyboard : [],
+      { persistent: true },
     );
+    // Меню — отдельным сообщением: номер аварийной заявки из чата не уходит.
+    await sendMenu(target);
   } catch (error) {
     if (isAbort(error)) throw error;
     log.error('аварийная заявка не создана', { user_id: userId, type, error: errorText(error) });
@@ -282,7 +372,7 @@ async function handleDangerButton(
     // Авария вместо обычной заявки: черновик больше не нужен.
     reportDraft.delete(userId);
   }
-  await send(target, messages.dangerInstructions(type, house, 'button'));
+  await send(target, messages.dangerInstructions(type, house, 'button'), [], { persistent: true });
   await registerEmergency(target, userId, type, null);
 }
 
@@ -303,7 +393,9 @@ async function handleDangerText(
     awaitingAddress.delete(userId);
     pendingDangerText.set(userId, text);
   }
-  await send(target, messages.dangerInstructions(type, house, 'confirm'), confirmDangerKeyboard(type));
+  await send(target, messages.dangerInstructions(type, house, 'confirm'), confirmDangerKeyboard(type), {
+    persistent: true,
+  });
 }
 
 /**
@@ -317,7 +409,7 @@ async function handleFire(target: SendTarget, userId: number | undefined): Promi
     reportDraft.delete(userId);
     pendingDangerText.delete(userId);
   }
-  await send(target, messages.fire);
+  await send(target, messages.fire, [], { persistent: true });
 }
 
 // ── обычная заявка ────────────────────────────────────────────────────────
@@ -383,11 +475,41 @@ async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): P
   await askStep(target, draft, lead);
 }
 
+/**
+ * Состояние черновика ДО текущего нажатия — для «Назад». Запоминается в начале
+ * обработки кнопки или текста, в историю попадает при переходе на новый шаг.
+ * Обработка событий строго по одному (pollLoop), поэтому хватает одной переменной.
+ */
+let stepBefore: { userId: number; snapshot: ReportDraft; history: ReportDraft[] } | null = null;
+
+function rememberStepBefore(userId: number, draft: ReportDraft): void {
+  const { history = [], ...snapshot } = draft;
+  stepBefore = { userId, snapshot: { ...snapshot }, history };
+}
+
 /** Перейти к шагу и задать его вопрос. Черновик пересохраняется — таймаут заново. */
 async function goTo(target: SendTarget, userId: number, draft: ReportDraft, step: ReportDraft['step']): Promise<void> {
+  if (stepBefore?.userId === userId) {
+    draft.history = [...stepBefore.history, stepBefore.snapshot];
+    stepBefore = null;
+  }
   draft.step = step;
   reportDraft.set(userId, draft);
   await askStep(target, draft);
+}
+
+/** «Назад»: вернуть черновик в состояние до последнего шага; с первого шага — в меню. */
+async function goBack(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
+  const history = [...(draft.history ?? [])];
+  const previous = history.pop();
+  if (!previous) {
+    reportDraft.delete(userId);
+    await showMenu(target, userId);
+    return;
+  }
+  const restored: ReportDraft = { ...previous, history };
+  reportDraft.set(userId, restored);
+  await askStep(target, restored);
 }
 
 /** После места: протечка в квартире — «откуда течёт?» (граница собственника), иначе описание. */
@@ -470,7 +592,7 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
       // Метрика пилота: «всё равно передать в УК» из зоны собственника.
       owner_zone_override: draft.ownerZone !== undefined,
     });
-    await sendMenu(target, messages.ticketCreated(ticket, draft.type === 'other'));
+    await sendKeptThenMenu(target, messages.ticketCreated(ticket, draft.type === 'other'));
   } catch (error) {
     if (isAbort(error)) throw error;
     if (error instanceof ApiClientError && error.code === 'not_found') {
@@ -501,6 +623,14 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
     await showMenu(target, userId, messages.ticketCancelled);
     return;
   }
+
+  if (payload === Action.back) {
+    await goBack(target, userId, draft);
+    return;
+  }
+
+  // Шаг вперёд — запоминаем, куда вернёт «Назад».
+  rememberStepBefore(userId, draft);
 
   const [kind, value = ''] = payload.split(':');
 
@@ -709,7 +839,7 @@ async function handleCancelButton(target: SendTarget, userId: number | undefined
     const result = await apiClient.cancelTicket(resident.id, ticketId, shutdown.signal);
     if (result.kind === 'ok') {
       log.info('заявка отменена жителем', { resident_id: resident.id, ticket_id: ticketId });
-      await sendMenu(target, messages.ticketCancelledByResident(ticketId));
+      await sendKeptThenMenu(target, messages.ticketCancelledByResident(ticketId));
     } else if (result.kind === 'not_cancellable') {
       await sendMenu(target, messages.notCancellable(ticketId));
     } else {
@@ -945,6 +1075,7 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
   const draft = userId === undefined ? undefined : reportDraft.get(userId);
   if (userId !== undefined && draft) {
     if (draft.step === 'description') {
+      rememberStepBefore(userId, draft);
       // Лимит api — 4000; длиннее MAX и не пришлёт, но обрезаем на всякий случай.
       draft.description = text.slice(0, 4000);
       await goTo(target, userId, draft, 'confirm');
@@ -986,17 +1117,52 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
 
   const userId = callback.user?.user_id;
 
-  const answer = async (notification: string): Promise<void> => {
-    try {
-      await api.answerCallback(callback.callback_id, notification, shutdown.signal);
-    } catch (error) {
-      if (isAbort(error)) throw error;
-      // Без ответа на нажатие дело всё равно делаем — это важнее индикатора.
-      log.warn('ответ на нажатие не отправлен', { error: errorText(error) });
-    }
+  const payload = callback.payload ?? '';
+  const scope: CallbackScope = {
+    callbackId: callback.callback_id,
+    notification: null,
+    answered: false,
+    pressedMid: update.message?.body?.mid ?? null,
   };
 
-  const payload = callback.payload ?? '';
+  await callbackScope.run(scope, async () => {
+    try {
+      // Кнопки под инструкцией при аварии и под номером аварийной заявки: само
+      // сообщение остаётся — снимаем с него только кнопки, ответ — новым сообщением.
+      const keep = payload.startsWith('danger_confirm:') || payload === Action.dismissDanger || payload === Action.gasCalled;
+      const pressedText = update.message?.body?.text;
+      if (keep) {
+        scope.answered = true;
+        await api
+          .answerCallback(
+            scope.callbackId,
+            { notification: 'Принято', message: pressedText ? { text: pressedText, attachments: [] } : undefined },
+            shutdown.signal,
+          )
+          .catch((error: unknown) => {
+            if (isAbort(error)) throw error;
+            log.warn('ответ на нажатие не отправлен', { error: errorText(error) });
+          });
+      }
+      await dispatchCallback(target, userId, payload);
+    } finally {
+      // Ничего не ответили (например, api недоступен и упало раньше) — хотя бы уведомление.
+      if (!scope.answered) {
+        scope.answered = true;
+        await api
+          .answerCallback(scope.callbackId, { notification: scope.notification ?? 'Готово' }, shutdown.signal)
+          .catch((error: unknown) => log.warn('ответ на нажатие не отправлен', { error: errorText(error) }));
+      }
+    }
+  });
+}
+
+/** Что делает кнопка. answer — текст короткого уведомления на нажатие. */
+async function dispatchCallback(target: SendTarget, userId: number | undefined, payload: string): Promise<void> {
+  const answer = async (notification: string): Promise<void> => {
+    const scope = callbackScope.getStore();
+    if (scope) scope.notification = notification;
+  };
 
   // «Да, это авария» после подозрения по словам: danger_confirm:<тип>.
   const [prefix, type] = payload.split(':');
@@ -1022,10 +1188,17 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
     /^(type|clar|place|src|own):/.test(payload) ||
     payload === Action.skipDescription ||
     payload === Action.sendTicket ||
-    payload === Action.cancelTicket
+    payload === Action.cancelTicket ||
+    payload === Action.back
   ) {
     await answer(payload === Action.cancelTicket ? 'Отменено' : 'Принято');
-    await handleTicketButton(target, userId, payload);
+    try {
+      await handleTicketButton(target, userId, payload);
+    } finally {
+      // Нажатие не привело к новому шагу (повтор вопроса, выход из заявки) —
+      // запомненное «до» не должно попасть в историю следующего шага.
+      stepBefore = null;
+    }
     return;
   }
 
@@ -1033,6 +1206,12 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
     case Action.report: {
       await answer('Сообщить о проблеме');
       await startReport(target, userId);
+      return;
+    }
+
+    case Action.menu: {
+      await answer('Меню');
+      await showMenu(target, userId);
       return;
     }
 
@@ -1086,7 +1265,7 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
 
     default: {
       // Кнопка из старого сообщения, чей payload мы больше не знаем.
-      log.debug('неизвестная кнопка', { payload: callback.payload });
+      log.debug('неизвестная кнопка', { payload });
       await answer('Кнопка устарела');
       await showMenu(target, userId);
     }
@@ -1129,6 +1308,9 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
 
       // Контакт приходит сообщением без текста — ловим его до проверки текста,
       // иначе ответом было бы «понимаю только текст».
+      // Житель ответил — прежний вопрос бота с кнопками больше не нужен.
+      await dropLiveMessage(target);
+
       const contact = findContact(update.message);
       if (contact) {
         await handleContact(target, sender?.user_id, contact);
@@ -1176,7 +1358,8 @@ async function notifyLoop(): Promise<void> {
       for (const n of pending) {
         if (!running) break;
         try {
-          await send({ chatId: n.max_chat_id }, messages.statusChanged(n), menuKeyboard(await getBotUsername()));
+          // Уведомление остаётся в чате — без кнопок, чтобы следующее нажатие его не заменило.
+          await send({ chatId: n.max_chat_id }, messages.statusChanged(n), [], { persistent: true });
           log.info('уведомление о статусе отправлено', { ticket_id: n.ticket_id, status: n.new_status });
         } catch (error) {
           if (isAbort(error)) throw error;

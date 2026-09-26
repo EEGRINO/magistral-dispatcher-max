@@ -241,6 +241,16 @@ Content-Type: application/json
   (строка — одноразовое уведомление пользователю). Лимит тот же: 2 ответа в секунду на диалог.
 - Что будет, если на нажатие не ответить, дока **не говорит** — см. «Открытые вопросы».
 
+**Замена и удаление сообщений** (schema.yaml, 26.09.2026): `CallbackAnswer.message` — тело
+`NewMessageBody`, «fill this if you want to modify current message»; `attachments: []` убирает
+клавиатуру, `null` — оставляет прежнюю (так описано у `PUT /messages`, для ответа на нажатие
+предполагаем то же). `PUT /messages?message_id=` — правка, `DELETE /messages?message_id=` — удаление
+(«if bot has permission»). `POST /messages` возвращает `SendMessageResult { message }` — `mid` в
+`message.body.mid`. Бот этим заменяет сообщение с нажатой кнопкой следующим шагом и удаляет свой
+вопрос после ответа текстом. **На живом боте не проверено** — есть ли у бота право удалять свои
+сообщения в диалоге и убирает ли `attachments: []` клавиатуру при ответе на нажатие. Не вышло —
+бот шлёт новое сообщение, ответ жителю не теряется.
+
 ## Контакт жителя: кнопка `request_contact`
 
 Схемы `RequestContactButton`, `ContactAttachmentPayload` в `schema.yaml`; пример `vcf_info` и

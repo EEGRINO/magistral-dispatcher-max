@@ -67,5 +67,13 @@ export const recentEmergency = new ExpiringMap<Partial<Record<DangerType, number
  */
 export const pendingDangerText = new ExpiringMap<string>(15 * 60 * 1000);
 
+/**
+ * «Живое» сообщение бота в диалоге — меню или вопрос с кнопками: chat_id → mid.
+ * Нажатие кнопки меняет его на месте; ответ текстом — бот удаляет его и пишет
+ * новый вопрос (решение 26.09.2026). Номера заявок, инструкции при аварии и
+ * уведомления сюда не попадают — их бот не трогает. Сутки — дольше незачем.
+ */
+export const liveMessage = new ExpiringMap<string>(24 * 60 * 60 * 1000);
+
 /** Черновик обычной заявки: user_id → черновик. 15 минут бездействия — забыт. */
 export const reportDraft = new ExpiringMap<ReportDraft>(15 * 60 * 1000);

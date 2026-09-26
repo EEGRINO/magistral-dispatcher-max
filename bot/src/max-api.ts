@@ -3,7 +3,7 @@
  *
  * Почему не SDK: после миграции июля 2026 сторонние обёртки ходят в мёртвый
  * platform-api.max.ru и передают токен query-параметром, который теперь даёт 401.
- * Здесь ровно два метода, которые нужны MVP. См. docs/max-notes.md.
+ * Здесь только методы, которые нужны MVP. См. docs/max-notes.md.
  */
 import { config } from './config.js';
 
@@ -99,6 +99,8 @@ export class MaxApiError extends Error {
 /** Лимит длины текста сообщения в MAX. */
 const MAX_TEXT_LENGTH = 4000;
 
+const clip = (text: string): string => (text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH - 1)}…` : text);
+
 export class MaxApi {
   constructor(
     private readonly baseUrl: string = config.baseUrl,
@@ -106,7 +108,7 @@ export class MaxApi {
   ) {}
 
   private async request<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     query: Record<string, string | number | undefined>,
     body?: unknown,
@@ -168,11 +170,29 @@ export class MaxApi {
   }
 
   /**
-   * Ответ на нажатие кнопки. Что будет без ответа, дока не говорит, поэтому
-   * отвечаем всегда: короткое одноразовое уведомление (поле notification).
+   * Ответ на нажатие кнопки (CallbackAnswer в schema.yaml): notification —
+   * одноразовое уведомление, message — новое тело, которое ЗАМЕНЯЕТ сообщение с
+   * нажатой кнопкой. attachments: [] убирает клавиатуру; null оставил бы старую.
+   * Что будет без ответа, дока не говорит, поэтому отвечаем всегда.
    */
-  async answerCallback(callbackId: string, notification: string, signal?: AbortSignal): Promise<void> {
-    await this.request<unknown>('POST', '/answers', { callback_id: callbackId }, { notification }, signal);
+  async answerCallback(
+    callbackId: string,
+    answer: { notification?: string; message?: { text: string; attachments: MaxAttachment[] } },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const body: Record<string, unknown> = {};
+    if (answer.notification) body.notification = answer.notification;
+    if (answer.message) body.message = { text: clip(answer.message.text), attachments: answer.message.attachments };
+    await this.request<unknown>('POST', '/answers', { callback_id: callbackId }, body, signal);
+  }
+
+  /**
+   * Удалить сообщение (DELETE /messages, schema.yaml: deleteMessage) — свой
+   * вопрос, на который житель ответил текстом. Нет прав или уже удалено —
+   * MAX ответит ошибкой; вызывающий её глушит, это не повод ронять ответ жителю.
+   */
+  async deleteMessage(messageId: string, signal?: AbortSignal): Promise<void> {
+    await this.request<unknown>('DELETE', '/messages', { message_id: messageId }, undefined, signal);
   }
 
   /**
@@ -184,15 +204,16 @@ export class MaxApi {
     text: string,
     signal?: AbortSignal,
     attachments?: MaxAttachment[],
-  ): Promise<void> {
-    const trimmed = text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH - 1)}…` : text;
-
-    await this.request<unknown>(
+  ): Promise<string | null> {
+    // Ответ — SendMessageResult { message } (schema.yaml); mid нужен, чтобы
+    // потом удалить это сообщение. Нет mid в ответе — просто не удалим.
+    const result = await this.request<{ message?: { body?: { mid?: string } } }>(
       'POST',
       '/messages',
       { chat_id: target.chatId, user_id: target.userId },
-      { text: trimmed, notify: true, ...(attachments?.length ? { attachments } : {}) },
+      { text: clip(text), notify: true, ...(attachments?.length ? { attachments } : {}) },
       signal,
     );
+    return result.message?.body?.mid ?? null;
   }
 }

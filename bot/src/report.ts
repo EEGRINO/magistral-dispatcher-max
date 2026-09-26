@@ -81,4 +81,6 @@ export interface ReportDraft {
    */
   detail?: string;
   description?: string | null;
+  /** Предыдущие состояния черновика — для «Назад»: последнее — куда вернуться. */
+  history?: ReportDraft[];
 }

@@ -21,6 +21,10 @@ export const Action = {
   skipDescription: 'desc:skip',
   sendTicket: 'ticket:send',
   cancelTicket: 'ticket:cancel',
+  /** «« Назад» — предыдущий шаг заявки. */
+  back: 'nav:back',
+  /** «« Меню» — там, где меню заменилось другим экраном. */
+  menu: 'nav:menu',
 } as const;
 
 /**
@@ -103,6 +107,8 @@ export function houseChatKeyboard(chatLink: string | null, botUsername: string |
   return keyboard([
     ...(chatLink ? [[{ type: 'link', text: 'Перейти в чат дома', url: chatLink }]] : []),
     ...appRow(botUsername),
+    // Этот экран заменил меню на месте — без кнопки к меню не вернуться.
+    callback('« Меню', Action.menu),
   ]);
 }
 
@@ -125,10 +131,14 @@ export const gasCalledKeyboard: MaxAttachment[] = keyboard([callback('Я поз�
 /** «Отмена» — на каждом шаге заявки: выйти можно в любой момент. */
 const cancelTicketRow: Button[] = callback('Отмена', Action.cancelTicket);
 
+/** «« Назад» — на каждом шаге заявки после первого (решение 26.09.2026). */
+const backRow: Button[] = callback('« Назад', Action.back);
+
 /** «Что случилось?». Дому без газа кнопку «Запах газа» не показываем (rules.yaml, fallback_policy). */
 export function typeKeyboard(hasGas: boolean): MaxAttachment[] {
   const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => hasGas || type !== 'gas');
-  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), cancelTicketRow]);
+  // «Назад» с первого шага — в меню.
+  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), backRow, cancelTicketRow]);
 }
 
 /** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */
@@ -154,13 +164,14 @@ const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator' | 'blockage', 
 };
 
 export function clarifyKeyboard(type: keyof typeof CLARIFY_BUTTONS): MaxAttachment[] {
-  return keyboard([...CLARIFY_BUTTONS[type].map(([text, payload]) => callback(text, payload)), cancelTicketRow]);
+  return keyboard([...CLARIFY_BUTTONS[type].map(([text, payload]) => callback(text, payload)), backRow, cancelTicketRow]);
 }
 
 /** «Где?» — только места, для которых у типа есть правило. */
 export function placeKeyboard(type: keyof typeof PLACES_BY_TYPE): MaxAttachment[] {
   return keyboard([
     ...PLACES_BY_TYPE[type].map((place) => callback(PLACES[place], placeAction(place))),
+    backRow,
     cancelTicketRow,
   ]);
 }
@@ -171,6 +182,7 @@ export const leakSourceKeyboard: MaxAttachment[] = keyboard([
   callback('Сам кран на трубе от стояка (первый вентиль)', 'src:valve'),
   callback('Смеситель, гибкий шланг, унитаз, стиральная машина, трубы после крана', 'src:owner'),
   callback('Не знаю / течёт с потолка', 'src:unknown'),
+  backRow,
   cancelTicketRow,
 ]);
 
@@ -182,16 +194,19 @@ export function ownerZoneKeyboard(zone: OwnerZone): MaxAttachment[] {
     zone === 'leak'
       ? callback('🔁 Кран не перекрывается / течёт сам кран', 'own:alt')
       : callback('⚠️ Теперь искрит или пахнет гарью', 'own:alt'),
+    backRow,
   ]);
 }
 
 export const descriptionKeyboard: MaxAttachment[] = keyboard([
   callback('Без описания', Action.skipDescription),
+  backRow,
   cancelTicketRow,
 ]);
 
 export const confirmTicketKeyboard: MaxAttachment[] = keyboard([
   callback('Отправить', Action.sendTicket),
+  backRow,
   cancelTicketRow,
 ]);
 
