@@ -78,6 +78,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL не задан — заполни .env}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RULES_PATH: /app/config/rules.yaml
+      # Токен бота — api проверяет им подпись initData мини-приложения.
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?MAX_BOT_TOKEN не задан — скопируй .env.example в .env}
     volumes:
       # Справочники (правила маршрутизации) — монтируются, а не вшиваются в
       # образ: правка config/rules.yaml применяется перезапуском api

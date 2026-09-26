@@ -37,6 +37,16 @@ export const config = {
    */
   rulesPath: process.env.RULES_PATH?.trim() || '../config/rules.yaml',
 
+  /**
+   * Токен бота — только чтобы проверять подпись initData мини-приложения
+   * (init-data.ts): подпись считается этим токеном. Секрет: только из
+   * окружения, в лог — никогда. Не задан — маршруты мини-аппа отвечают 503.
+   */
+  botToken: process.env.MAX_BOT_TOKEN?.trim() || null,
+
+  /** Сколько живёт initData мини-аппа. Дока срок не задаёт; сутки — чтобы открытое с утра приложение работало весь день. */
+  initDataMaxAgeSec: Number(process.env.INIT_DATA_MAX_AGE_SEC ?? 24 * 60 * 60),
+
   /** Как часто разбирать адреса домов, заведённых в БД напрямую (house-normalizer.ts). */
   houseNormalizeIntervalMs: Number(process.env.HOUSE_NORMALIZE_INTERVAL_MS ?? 60_000),
 } as const;

@@ -32,7 +32,7 @@ const RESIDENT_COLUMNS = 'id, house_id, max_chat_id, max_user_id, created_at';
 /**
  * Дом жителя: undefined — жителя нет, null — житель есть, дом неизвестен.
  */
-async function houseOfResident(residentId: number): Promise<HouseDto | null | undefined> {
+export async function houseOfResident(residentId: number): Promise<HouseDto | null | undefined> {
   const { rows } = await pool.query<{
     house_id: number | null;
     address: string | null;

@@ -39,7 +39,19 @@ export const addressUnrecognized = (): ApiError =>
 export const residentArchived = (): ApiError =>
   new ApiError(409, 'resident_archived', 'Житель в архиве — изменения запрещены');
 
-export const invalidReference =(message: string): ApiError =>
+/** Мини-апп: initData нет, подпись не сошлась или устарела — открыть заново из бота. */
+export const initDataInvalid = (): ApiError =>
+  new ApiError(401, 'init_data_invalid', 'Откройте мини-приложение заново из бота в MAX');
+
+/** Мини-апп: аккаунт MAX подлинный, но житель ещё не вошёл в бота по контакту. */
+export const notLinked = (): ApiError =>
+  new ApiError(403, 'not_linked', 'Сначала войдите в бота: /start → «Поделиться контактом»');
+
+/** Мини-апп: у api нет токена бота — проверить подпись нечем. */
+export const miniappDisabled = (): ApiError =>
+  new ApiError(503, 'miniapp_disabled', 'Мини-приложение временно недоступно');
+
+export const invalidReference = (message: string): ApiError =>
   new ApiError(400, 'invalid_reference', message);
 
 /** Минимум полей ошибки node-postgres, который нам нужен. */

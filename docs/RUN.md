@@ -625,6 +625,16 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    # Мини-приложение → api /app/*. Единственный путь api наружу, кроме health:
+    # жителя api узнаёт по подписи initData MAX (api/src/routes/app.ts).
+    location /api/app/ {
+        proxy_pass http://127.0.0.1:PORT/app/;     # подставить $API_PORT
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 16k;                  # заявка — текст до 4000 символов
+    }
     # Отдельный блок: иначе try_files отдал бы на неизвестный /api/... index.html с 200
     location /api/ {
         return 404;

@@ -23,7 +23,8 @@ type Step =
   | { name: 'owner'; zone: OwnerZone }
   | { name: 'description' }
   | { name: 'confirm' }
-  | { name: 'danger'; danger: DangerType; ticket: Ticket }
+  /** ticket: null — заявка ещё создаётся (или не создалась, failed): инструкция видна сразу. */
+  | { name: 'danger'; danger: DangerType; ticket: Ticket | null; failed: boolean }
   | { name: 'done'; ticket: Ticket; manual: boolean };
 
 /** Ответы жителя по ходу сценария — как черновик заявки у бота. */
@@ -36,8 +37,8 @@ interface Answers {
 
 interface NewTicketScreenProps {
   house: House | null;
-  /** Регистрирует заявку и возвращает её с номером. */
-  onCreate: (draft: TicketDraft) => Ticket;
+  /** Регистрирует заявку в api и возвращает её с номером. */
+  onCreate: (draft: TicketDraft) => Promise<Ticket>;
   onClose: () => void;
 }
 
@@ -45,11 +46,18 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   const [step, setStep] = useState<Step>({ name: 'type' });
   const [answers, setAnswers] = useState<Answers>({});
   const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  // Авария: инструкция сразу, аварийная заявка — тоже сразу, без вопросов (как у бота по кнопке).
+  // Авария: инструкция — сразу, не дожидаясь api (как у бота: что делать при
+  // газе, человек должен узнать, даже если сервер не ответил). Заявка
+  // создаётся параллельно; номер появится, когда api ответит.
   function toDanger(danger: DangerType) {
-    const ticket = onCreate({ problem_type: danger, place: null, detail_code: null, description: null });
-    setStep({ name: 'danger', danger, ticket });
+    setStep({ name: 'danger', danger, ticket: null, failed: false });
+    const sameDanger = (current: Step) => current.name === 'danger' && current.danger === danger;
+    onCreate({ problem_type: danger, place: null, detail_code: null, description: null })
+      .then((ticket) => setStep((current) => (sameDanger(current) ? { ...current, ticket } as Step : current)))
+      .catch(() => setStep((current) => (sameDanger(current) ? { ...current, failed: true } as Step : current)));
   }
 
   function afterPlace(next: Answers) {
@@ -127,15 +135,25 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
     setStep({ name: 'confirm' });
   }
 
-  function submit() {
-    const ticket = onCreate({
-      problem_type: answers.type!,
-      place: answers.place ?? null,
-      detail_code: answers.detail ?? null,
-      description: answers.description ?? null,
-    });
-    // «Другое / не уверен» — заявку классифицирует диспетчер, об этом говорим жителю.
-    setStep({ name: 'done', ticket, manual: answers.type === 'other' });
+  async function submit() {
+    // Повторное нажатие, пока ждём api, второй заявки не создаёт.
+    if (sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const ticket = await onCreate({
+        problem_type: answers.type!,
+        place: answers.place ?? null,
+        detail_code: answers.detail ?? null,
+        description: answers.description ?? null,
+      });
+      // «Другое / не уверен» — заявку классифицирует диспетчер, об этом говорим жителю.
+      setStep({ name: 'done', ticket, manual: answers.type === 'other' });
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Не удалось отправить заявку');
+    } finally {
+      setSending(false);
+    }
   }
 
   switch (step.name) {
@@ -253,8 +271,8 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
         <Page
           footer={
             <>
-              <Button variant="primary" size="large" stretched onClick={submit}>
-                Отправить
+              <Button variant="primary" size="large" stretched disabled={sending} onClick={() => void submit()}>
+                {sending ? 'Отправляем…' : 'Отправить'}
               </Button>
               <Button variant="secondary" size="large" stretched onClick={onClose}>
                 Отмена
@@ -265,6 +283,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
           <Container>
             <Typography.Title>Проверьте заявку</Typography.Title>
           </Container>
+          {sendError && <div className="notice notice--danger multiline">{sendError}. Попробуйте ещё раз.</div>}
           <CellList mode="island">
             <CellSimple overline="Что" title={PROBLEM_TYPES[answers.type!]} />
             {answers.place && <CellSimple overline="Где" title={PLACES[answers.place]} />}
@@ -294,7 +313,17 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
               </Button>
             ))}
           </Container>
-          <TicketSummary ticket={step.ticket} emergency />
+          {step.ticket ? (
+            <TicketSummary ticket={step.ticket} emergency />
+          ) : step.failed ? (
+            <div className="notice notice--danger multiline">
+              Не получилось передать заявку диспетчеру. Обязательно позвоните по телефонам выше.
+            </div>
+          ) : (
+            <Container>
+              <Typography.Body className="muted">Передаём заявку диспетчеру…</Typography.Body>
+            </Container>
+          )}
         </Page>
       );
     }

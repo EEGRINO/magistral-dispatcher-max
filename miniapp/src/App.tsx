@@ -1,45 +1,110 @@
-import { useState } from 'react';
-import { DEMO_HOUSE, DEMO_TICKETS } from './demo';
+import { useCallback, useEffect, useState } from 'react';
+import { Button, Container, Panel, Spinner, Typography } from '@maxhub/max-ui';
+import { ApiError, createTicket, hasInitData, loadHouse, loadTickets } from './api';
 import type { TicketDraft } from './scenario';
 import { HouseChatScreen } from './screens/HouseChatScreen';
 import { NewTicketScreen } from './screens/NewTicketScreen';
 import { TicketScreen } from './screens/TicketScreen';
 import { TicketsScreen } from './screens/TicketsScreen';
-import type { Ticket } from './types/domain';
+import type { House, Ticket } from './types/domain';
 
 type Screen = { name: 'tickets' } | { name: 'ticket'; id: number } | { name: 'report' } | { name: 'chat' };
 
+type Load = { state: 'loading' } | { state: 'error'; error: ApiError } | { state: 'ready' };
+
+/** Что сказать жителю, если данные не загрузились. */
+function problemText(error: ApiError): string {
+  switch (error.code) {
+    case 'not_in_max':
+      return 'Откройте приложение из бота в MAX — кнопкой «Отправить заявку ЖКХ».';
+    case 'not_linked':
+      return 'Сначала войдите в бота: напишите ему /start и нажмите «Поделиться контактом». Потом откройте приложение снова.';
+    case 'init_data_invalid':
+      return 'Не получилось подтвердить вход. Закройте приложение и откройте его заново из бота.';
+    default:
+      return 'Сервис временно недоступен — попробуйте через минуту.';
+  }
+}
+
 /**
- * Пока мини-апп не подключён к api, заявки живут в памяти страницы: демо-заявки
- * плюс созданные в этой сессии. Жителя и маршрутизацию определит api —
- * поэтому у новой заявки ответственного здесь нет.
+ * Жителя, дом и заявки определяет api по подписанному initData MAX (api.ts).
+ * Списки перечитываются при возврате к ним: статус заявки мог сменить диспетчер.
  */
 export function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'tickets' });
-  const [tickets, setTickets] = useState<Ticket[]>(DEMO_TICKETS);
-  const house = DEMO_HOUSE;
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [house, setHouse] = useState<House | null>(null);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
 
-  const toList = () => setScreen({ name: 'tickets' });
+  const refresh = useCallback(async () => {
+    if (!hasInitData()) {
+      setLoad({ state: 'error', error: new ApiError(0, 'not_in_max', 'Открыто не из MAX') });
+      return;
+    }
+    try {
+      const [loadedHouse, loadedTickets] = await Promise.all([loadHouse(), loadTickets()]);
+      setHouse(loadedHouse);
+      setTickets(loadedTickets);
+      setLoad({ state: 'ready' });
+    } catch (error) {
+      setLoad({ state: 'error', error: error instanceof ApiError ? error : new ApiError(0, null, String(error)) });
+    }
+  }, []);
 
-  function createTicket(draft: TicketDraft): Ticket {
-    const ticket: Ticket = {
-      id: Math.max(0, ...tickets.map((t) => t.id)) + 1,
-      problem_type: draft.problem_type,
-      place: draft.place,
-      description: draft.description,
-      status: 'new',
-      created_at: new Date().toISOString(),
-      responsible_name: null,
-      deadline_at: null,
-      deadline_verified: false,
-    };
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const toList = () => {
+    setScreen({ name: 'tickets' });
+    void refresh();
+  };
+
+  async function submit(draft: TicketDraft): Promise<Ticket> {
+    const ticket = await createTicket(draft);
     setTickets((current) => [ticket, ...current]);
     return ticket;
   }
 
+  if (load.state === 'loading') {
+    return (
+      <Panel mode="secondary" centeredX centeredY className="page">
+        <Spinner />
+      </Panel>
+    );
+  }
+
+  if (load.state === 'error') {
+    return (
+      <Panel mode="secondary" className="page">
+        <div className="page__body">
+          <Container>
+            <Typography.Title>Заявки ЖКХ</Typography.Title>
+            <Typography.Body className="muted">{problemText(load.error)}</Typography.Body>
+          </Container>
+        </div>
+        {load.error.code !== 'not_in_max' && (
+          <div className="page__footer">
+            <Button
+              variant="primary"
+              size="large"
+              stretched
+              onClick={() => {
+                setLoad({ state: 'loading' });
+                void refresh();
+              }}
+            >
+              Повторить
+            </Button>
+          </div>
+        )}
+      </Panel>
+    );
+  }
+
   switch (screen.name) {
     case 'report':
-      return <NewTicketScreen house={house} onCreate={createTicket} onClose={toList} />;
+      return <NewTicketScreen house={house} onCreate={submit} onClose={toList} />;
     case 'chat':
       return <HouseChatScreen house={house} onBack={toList} />;
     case 'ticket': {

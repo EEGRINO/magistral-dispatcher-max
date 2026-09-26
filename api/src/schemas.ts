@@ -207,6 +207,25 @@ export const UpdateResidentBody = Type.Object(
 export const AdminResidentResponse = Type.Object({ resident: AdminResident });
 export const AdminResidentListResponse = Type.Object({ residents: Type.Array(AdminResident) });
 
+// ── Мини-приложение (/app, публичные, с проверкой initData) ───────────
+
+export const AppMeResponse = Type.Object({
+  resident_id: Id,
+  /** null — дом жителя неизвестен (УК не указала, житель не вводил адрес). */
+  house: Nullable(House),
+});
+
+/** Как тело POST /tickets, но без resident_id: жителя определяет api по initData. */
+export const AppCreateTicketBody = Type.Object(
+  {
+    problem_type: Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }),
+    place: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
+    description: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 4000 }))),
+    detail_code: Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 64, pattern: '^[a-z_]+$' }))),
+  },
+  { additionalProperties: false },
+);
+
 // ── Смена статуса и уведомления (/admin/tickets, /notifications) ──────
 
 const TicketStatusValue = Type.Union([Type.Literal('new'), Type.Literal('in_progress'), Type.Literal('resolved')]);

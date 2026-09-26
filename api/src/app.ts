@@ -9,6 +9,7 @@ import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from './config.js';
 import { ApiError, mapPgError } from './errors.js';
 import { adminRoutes } from './routes/admin.js';
+import { appRoutes } from './routes/app.js';
 import { dispatchRoutes } from './routes/dispatch.js';
 import { healthRoutes } from './routes/health.js';
 import { residentRoutes } from './routes/residents.js';
@@ -86,6 +87,8 @@ export function buildApp({ rules }: { rules: Rules }): FastifyInstance {
   app.register(ticketRoutes, { rules });
   app.register(adminRoutes);
   app.register(dispatchRoutes, { rules });
+  // Единственный публичный плагин (кроме /health): через nginx как /api/app/*.
+  app.register(appRoutes, { rules });
 
   return app;
 }
