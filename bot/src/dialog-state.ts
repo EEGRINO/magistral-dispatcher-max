@@ -77,3 +77,10 @@ export const liveMessage = new ExpiringMap<string>(24 * 60 * 60 * 1000);
 
 /** Черновик обычной заявки: user_id → черновик. 15 минут бездействия — забыт. */
 export const reportDraft = new ExpiringMap<ReportDraft>(15 * 60 * 1000);
+
+/**
+ * Только что отправленная заявка: user_id → её номер. Второе быстрое нажатие
+ * «Отправить» (кейс N04 чек-листа) получает «заявка №N уже отправлена», а не
+ * «черновик устарел». Минута — двойное нажатие быстрее.
+ */
+export const recentSubmit = new ExpiringMap<number>(60 * 1000);

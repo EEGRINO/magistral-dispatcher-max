@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button, CellHeader, CellList, CellSimple, Container, Panel, Textarea, Typography } from '@maxhub/max-ui';
 import {
   CLARIFY,
@@ -47,6 +47,10 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   const [answers, setAnswers] = useState<Answers>({});
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // Состояние React обновится только после перерисовки — два касания в одно
+  // мгновение увидели бы sending = false оба. Ref меняется сразу (кейс N04).
+  const sendingNow = useRef(false);
+  const dangerStarted = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
   /** Пройденные шаги с ответами на тот момент — для «Назад» (решение 26.09.2026). */
   const [history, setHistory] = useState<{ step: Step; answers: Answers }[]>([]);
@@ -74,6 +78,9 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
   // газе, человек должен узнать, даже если сервер не ответил). Заявка
   // создаётся параллельно; номер появится, когда api ответит.
   function toDanger(danger: DangerType) {
+    // Двойное касание кнопки опасности — одна аварийная заявка.
+    if (dangerStarted.current) return;
+    dangerStarted.current = true;
     setStep({ name: 'danger', danger, ticket: null, failed: false });
     const sameDanger = (current: Step) => current.name === 'danger' && current.danger === danger;
     onCreate({ problem_type: danger, place: null, detail_code: null, description: null })
@@ -151,7 +158,8 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
 
   async function submit() {
     // Повторное нажатие, пока ждём api, второй заявки не создаёт.
-    if (sending) return;
+    if (sendingNow.current) return;
+    sendingNow.current = true;
     setSending(true);
     setSendError(null);
     try {
@@ -166,6 +174,7 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'Не удалось отправить заявку');
     } finally {
+      sendingNow.current = false;
       setSending(false);
     }
   }

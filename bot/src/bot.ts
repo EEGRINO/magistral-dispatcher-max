@@ -34,6 +34,7 @@ import {
   pendingDangerText,
   pendingInvite,
   recentEmergency,
+  recentSubmit,
   reportDraft,
 } from './dialog-state.js';
 import { detectDanger, detectFire, isDangerType, type DangerType } from './emergency.js';
@@ -175,6 +176,21 @@ async function send(
 ): Promise<void> {
   const chatId = target.chatId;
   const scope = callbackScope.getStore();
+
+  // Заменять можно только текущее «живое» сообщение. Кнопка из старого или уже
+  // превращённого сообщения (второе быстрое нажатие «Отправить» — то сообщение
+  // стало номером заявки) — отвечаем новым сообщением, историю не трогаем.
+  const live = chatId !== undefined ? liveMessage.get(chatId) : undefined;
+  const canReplace = scope?.pressedMid != null && (live === undefined || live === scope.pressedMid);
+  if (scope && !scope.answered && !canReplace) {
+    scope.answered = true;
+    await api
+      .answerCallback(scope.callbackId, { notification: scope.notification ?? 'Готово' }, shutdown.signal)
+      .catch((error: unknown) => {
+        if (isAbort(error)) throw error;
+        log.warn('ответ на нажатие не отправлен', { error: errorText(error) });
+      });
+  }
 
   if (scope && !scope.answered) {
     scope.answered = true;
@@ -585,6 +601,7 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
       },
       shutdown.signal,
     );
+    recentSubmit.set(userId, ticket.id);
     log.info('заявка создана', {
       resident_id: draft.residentId,
       ticket_id: ticket.id,
@@ -617,6 +634,15 @@ async function submitTicket(target: SendTarget, userId: number, draft: ReportDra
 async function handleTicketButton(target: SendTarget, userId: number | undefined, payload: string): Promise<void> {
   const draft = userId === undefined ? undefined : reportDraft.get(userId);
   if (userId === undefined || !draft) {
+    // Второе быстрое нажатие «Отправить»: заявка уже создана — одна, с одним
+    // номером (кейс N04). Только уведомление на нажатие, без новых сообщений.
+    const sentId = userId === undefined ? undefined : recentSubmit.get(userId);
+    if (payload === Action.sendTicket && sentId !== undefined) {
+      const scope = callbackScope.getStore();
+      if (scope) scope.notification = `Заявка №${sentId} уже отправлена`;
+      log.info('повторное «Отправить» — заявка уже создана', { user_id: userId, ticket_id: sentId });
+      return;
+    }
     await showMenu(target, userId, messages.draftExpired);
     return;
   }
