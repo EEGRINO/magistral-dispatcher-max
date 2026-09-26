@@ -57,22 +57,16 @@ function appRow(botUsername: string | null): Button[][] {
 }
 
 /**
- * ВРЕМЕННО: мини-апп обычной ссылкой, пока URL не привязан к боту и open_app
- * открывать нечего. Страница откроется без данных входа MAX — это ожидаемо.
+ * Меню (решение 26.09.2026): мини-приложение — первым, заявка в чате бота —
+ * запасной путь и не скрывается никогда: бот не может знать, откроется ли
+ * мини-апп у жителя (белые списки, клиент MAX), а диалог в чате работает всегда.
  */
-function testAppRow(): Button[][] {
-  return config.miniappTestUrl
-    ? [[{ type: 'link', text: 'Мини-апп (тест)', url: config.miniappTestUrl }]]
-    : [];
-}
-
 export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard([
-    callback('Сообщить о проблеме', Action.report),
+    ...appRow(botUsername),
+    callback('Сообщить о проблеме в чате', Action.report),
     callback('Мои заявки', Action.tickets),
     callback('Чат дома', Action.houseChat),
-    ...appRow(botUsername),
-    ...testAppRow(),
   ]);
 }
 
