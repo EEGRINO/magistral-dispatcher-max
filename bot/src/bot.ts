@@ -498,7 +498,10 @@ async function goTo(target: SendTarget, userId: number, draft: ReportDraft, step
   await askStep(target, draft);
 }
 
-/** «Назад»: вернуть черновик в состояние до последнего шага; с первого шага — в меню. */
+/**
+ * «Назад»: вернуть черновик в состояние до последнего шага. На первом шаге
+ * кнопки нет (там «Отмена»), но старая кнопка из прежнего сообщения — в меню.
+ */
 async function goBack(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
   const history = [...(draft.history ?? [])];
   const previous = history.pop();

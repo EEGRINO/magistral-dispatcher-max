@@ -137,8 +137,8 @@ const backRow: Button[] = callback('« Назад', Action.back);
 /** «Что случилось?». Дому без газа кнопку «Запах газа» не показываем (rules.yaml, fallback_policy). */
 export function typeKeyboard(hasGas: boolean): MaxAttachment[] {
   const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => hasGas || type !== 'gas');
-  // «Назад» с первого шага — в меню.
-  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), backRow, cancelTicketRow]);
+  // На первом шаге только «Отмена»: «Назад» делал бы то же самое — вернул в меню.
+  return keyboard([...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))), cancelTicketRow]);
 }
 
 /** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */

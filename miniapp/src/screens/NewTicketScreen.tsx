@@ -175,7 +175,8 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
       // Дому без газа кнопку «Запах газа» не показываем; дом неизвестен — показываем.
       const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => house?.has_gas !== false || type !== 'gas');
       return (
-        <Question title="Выберите, что случилось:" onCancel={onClose} onBack={back}>
+        // На первом шаге только «Отмена»: «Назад» закрыл бы форму так же.
+        <Question title="Выберите, что случилось:" onCancel={onClose}>
           {types.map((type) => (
             <Option key={type} label={PROBLEM_TYPES[type]} onClick={() => chooseType(type)} />
           ))}
@@ -392,16 +393,19 @@ function Question({
   title: string;
   children: ReactNode;
   onCancel: () => void;
-  onBack: () => void;
+  /** Нет — первый шаг: там только «Отмена». */
+  onBack?: () => void;
 }) {
   return (
     <Page
       footer={
         <>
-          <Button variant="secondary" size="large" stretched onClick={onBack}>
-            « Назад
-          </Button>
-          <Button variant="ghost" size="large" stretched onClick={onCancel}>
+          {onBack && (
+            <Button variant="secondary" size="large" stretched onClick={onBack}>
+              « Назад
+            </Button>
+          )}
+          <Button variant={onBack ? 'ghost' : 'secondary'} size="large" stretched onClick={onCancel}>
             Отмена
           </Button>
         </>
