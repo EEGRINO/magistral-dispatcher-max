@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, CellList, CellSimple, Container, Panel, Typography } from '@maxhub/max-ui';
 import { StatusBadge } from '../components/TicketCard';
+import { Description } from '../components/Description';
 import type { Ticket } from '../types/domain';
 import { formatCreated, isActive, isEmergency, placeLabel, problemLabel } from '../types/domain';
 
@@ -50,7 +51,6 @@ export function TicketScreen({ ticket, onBack, onCancel }: TicketScreenProps) {
   const place = placeLabel(ticket.place);
   if (place) rows.push(['Где', place]);
   rows.push(['Подана', formatCreated(ticket.created_at)]);
-  if (ticket.description) rows.push(['Описание', ticket.description]);
 
   return (
     <Panel mode="secondary" className="page">
@@ -63,6 +63,8 @@ export function TicketScreen({ ticket, onBack, onCancel }: TicketScreenProps) {
             <CellSimple key={label} overline={label} title={value} />
           ))}
         </CellList>
+        {/* Описание — отдельной карточкой: в ячейку длинный текст не помещается. */}
+        {ticket.description && <Description text={ticket.description} />}
         {confirming && (
           <div className="notice multiline">
             Отменить заявку № {ticket.id}? Она останется в истории со статусом «отменена».

@@ -6,6 +6,7 @@
  */
 
 import type { DangerType } from './emergency.js';
+import { previewDescription } from './text.js';
 import { PLACES, PROBLEM_TYPES, isPlace, type OwnerZone, type Place, type ProblemType } from './report.js';
 import { STATUS_LABELS, isEmergency, problemLabel, type TicketStatus } from './status.js';
 
@@ -229,8 +230,12 @@ export const messages = {
 
   addressCancelled: 'Хорошо, отменил.',
 
-  // TODO(Павел): текст, если код из QR не найден (QR устарел или повреждён).
-  inviteUnknown: 'Не нашёл дом по этому QR-коду — возможно, он устарел. Обратитесь, пожалуйста, в УК.',
+  // TODO(Павел): текст, если код дома из ссылки или QR не найден (устарел или повреждён).
+  // 112 — на случай аварии: дом неизвестен, телефона его АДС у бота нет (кейс 9 чек-листа).
+  inviteUnknown:
+    'Не нашёл дом по этой ссылке или QR-коду — возможно, они устарели.\n\n' +
+    '🆘 Если авария — звоните 112.\n' +
+    'Остальное можно сделать через меню ниже.',
 
   // TODO(Павел): финальный текст для жителя, чей номер не найден у УК,
   // — с телефоном/способом связи с УК.
@@ -252,7 +257,20 @@ export const messages = {
   /** api недоступен: сказать об этом лучше, чем молчать. */
   serviceUnavailable: 'Сервис временно недоступен — попробуйте через минуту.',
 
-  nonText: 'Пока я понимаю только текст. Напиши сообщение словами.',
+  // Фото, стикер, голосовое, файл — вне сценария (кейс 5 чек-листа).
+  nonText: 'Фото, стикеры и голосовые я пока не понимаю. Напишите словами или выберите действие ниже.',
+
+  /** То же посреди заявки — вопрос повторяется, сценарий продолжается. */
+  nonTextChooseButton: 'Фото, стикеры и голосовые я пока не понимаю. Выберите, пожалуйста, вариант кнопкой ниже.',
+
+  nonTextDescription:
+    'Фото и голосовые пока не прикладываются к заявке. Опишите проблему текстом ' +
+    'или нажмите «Без описания».',
+
+  /** Фото с подписью на шаге описания: подпись — описание, само фото не сохраняется. */
+  photoNotAttached: 'Фото пока не прикладывается к заявке — сохранил только подпись к нему.',
+
+  nonTextAddress: 'Фото и голосовые я пока не понимаю. Напишите улицу и номер дома текстом, например «Ленина 5».',
 
   // ── экстренная ветка (тексты Павла, 24.09.2026) ───────────────────────
 
@@ -350,7 +368,7 @@ export const messages = {
     `Что: ${PROBLEM_TYPES[d.type]}\n` +
     (d.place ? `Где: ${PLACES[d.place]}\n` : '') +
     `Адрес: ${d.address ?? 'дом не указан — УК уточнит'}\n` +
-    `Описание: ${d.description ?? '—'}`,
+    `Описание: ${d.description ? previewDescription(d.description) : '—'}`,
 
   /** manual — тип «Другое / не уверен»: заявку классифицирует диспетчер. */
   ticketCreated: (t: TicketView, manual: boolean): string =>
@@ -411,7 +429,7 @@ export const messages = {
     `Что: ${problemLabel(t.problem_type)}\n` +
     (t.place && isPlace(t.place) ? `Где: ${PLACES[t.place]}\n` : '') +
     `Подана: ${formatCreated(t.created_at, t.timezone)}` +
-    (t.description ? `\nОписание: ${t.description}` : ''),
+    (t.description ? `\nОписание: ${previewDescription(t.description)}` : ''),
 
   ticketList: (tickets: TicketView[]): string =>
     'У вас несколько активных заявок:\n\n' +

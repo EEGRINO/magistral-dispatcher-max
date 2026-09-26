@@ -25,8 +25,17 @@ export class ApiError extends Error {
 /** Открыто внутри MAX кнопкой бота — есть подписанные данные запуска. */
 export const hasInitData = (): boolean => Boolean(window.WebApp?.initData);
 
+/**
+ * Сколько ждать ответа api. На слабой сети запрос мог бы висеть бесконечно, и
+ * житель видел бы «Отправляем…» без конца; по таймауту — ошибка и кнопка повтора
+ * (кейс 16 чек-листа).
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   let response: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     response = await fetch(`${BASE}${path}`, {
       method,
@@ -35,9 +44,12 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
-    throw new ApiError(0, 'network', 'Нет связи с сервером');
+    throw new ApiError(0, 'network', 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.');
+  } finally {
+    clearTimeout(timer);
   }
 
   const json = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;

@@ -71,6 +71,17 @@ body {
 /* Тексты Павла приходят с переносами строк — сохраняем их. */
 .multiline { white-space: pre-line; }
 
+/* Описание жителя: до 4000 символов, бывает без пробелов — переносим где угодно. */
+.description {
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.description__label {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
 /* Длинный текст (инструкция, зона собственника) — карточкой, как ячейки. */
 .notice {
   margin: 0 16px;

@@ -12,6 +12,7 @@ import {
   type OwnerZone,
   type TicketDraft,
 } from '../scenario';
+import { Description } from '../components/Description';
 import type { DangerType, House, Place, ProblemType, Ticket } from '../types/domain';
 import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, TICKET_STATUS_LABEL } from '../types/domain';
 
@@ -320,8 +321,9 @@ export function NewTicketScreen({ house, onCreate, onClose }: NewTicketScreenPro
             <CellSimple overline="Что" title={PROBLEM_TYPES[answers.type!]} />
             {answers.place && <CellSimple overline="Где" title={PLACES[answers.place]} />}
             <CellSimple overline="Адрес" title={house?.address ?? 'дом не указан — УК уточнит'} />
-            <CellSimple overline="Описание" title={answers.description ?? '—'} />
+            {!answers.description && <CellSimple overline="Описание" title="—" />}
           </CellList>
+          {answers.description && <Description text={answers.description} />}
         </Page>
       );
 

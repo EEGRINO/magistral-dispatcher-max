@@ -99,7 +99,12 @@ export class MaxApiError extends Error {
 /** Лимит длины текста сообщения в MAX. */
 const MAX_TEXT_LENGTH = 4000;
 
-const clip = (text: string): string => (text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH - 1)}…` : text);
+const clip = (text: string): string => {
+  if (text.length <= MAX_TEXT_LENGTH) return text;
+  // Не разрезать эмодзи пополам: половинка суррогатной пары — битый символ.
+  const start = text.slice(0, MAX_TEXT_LENGTH - 1).replace(/[\uD800-\uDBFF]$/, '');
+  return `${start}…`;
+};
 
 export class MaxApi {
   constructor(

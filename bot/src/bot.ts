@@ -26,6 +26,7 @@
  */
 import { ApiClient, ApiClientError, type House, type Resident, type Ticket } from './api-client.js';
 import { findContact, verifyContact } from './auth.js';
+import { cutText, DESCRIPTION_LIMIT } from './text.js';
 import { config, messages } from './config.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
@@ -407,7 +408,7 @@ async function handleDangerText(
   const house = await houseForEmergency(userId);
   if (userId !== undefined) {
     awaitingAddress.delete(userId);
-    pendingDangerText.set(userId, text);
+    pendingDangerText.set(userId, cutText(text, DESCRIPTION_LIMIT).text);
   }
   await send(target, messages.dangerInstructions(type, house, 'confirm'), confirmDangerKeyboard(type), {
     persistent: true,
@@ -504,14 +505,20 @@ function rememberStepBefore(userId: number, draft: ReportDraft): void {
 }
 
 /** Перейти к шагу и задать его вопрос. Черновик пересохраняется — таймаут заново. */
-async function goTo(target: SendTarget, userId: number, draft: ReportDraft, step: ReportDraft['step']): Promise<void> {
+async function goTo(
+  target: SendTarget,
+  userId: number,
+  draft: ReportDraft,
+  step: ReportDraft['step'],
+  lead?: string,
+): Promise<void> {
   if (stepBefore?.userId === userId) {
     draft.history = [...stepBefore.history, stepBefore.snapshot];
     stepBefore = null;
   }
   draft.step = step;
   reportDraft.set(userId, draft);
-  await askStep(target, draft);
+  await askStep(target, draft, lead);
 }
 
 /**
@@ -1081,7 +1088,31 @@ async function handleContact(target: SendTarget, senderId: number | undefined, c
  * черновик заявки ждёт описание — это описание; ждём адрес — это адрес;
  * иначе меню (или кнопка контакта, если не вошёл).
  */
-async function handleText(target: SendTarget, userId: number | undefined, text: string): Promise<void> {
+/**
+ * Фото, стикер, голосовое, файл без текста. Посреди сценария — повторяем текущий
+ * вопрос с просьбой ответить кнопкой или текстом: сценарий продолжается с того
+ * же шага (кейс 5 чек-листа). Вне сценария — меню.
+ */
+async function handleNonText(target: SendTarget, userId: number | undefined): Promise<void> {
+  const draft = userId === undefined ? undefined : reportDraft.get(userId);
+  if (userId !== undefined && draft) {
+    reportDraft.set(userId, draft);
+    await askStep(target, draft, draft.step === 'description' ? messages.nonTextDescription : messages.nonTextChooseButton);
+    return;
+  }
+
+  const addressFor = userId === undefined ? undefined : awaitingAddress.get(userId);
+  if (userId !== undefined && addressFor !== undefined) {
+    awaitingAddress.set(userId, addressFor);
+    await send(target, messages.nonTextAddress, cancelAddressKeyboard);
+    return;
+  }
+
+  await showMenu(target, userId, messages.nonText);
+}
+
+/** withMedia — к тексту приложено фото или файл (текст — подпись к нему). */
+async function handleText(target: SendTarget, userId: number | undefined, text: string, withMedia = false): Promise<void> {
   if (detectFire(text)) {
     await handleFire(target, userId);
     return;
@@ -1105,9 +1136,10 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
   if (userId !== undefined && draft) {
     if (draft.step === 'description') {
       rememberStepBefore(userId, draft);
-      // Лимит api — 4000; длиннее MAX и не пришлёт, но обрезаем на всякий случай.
-      draft.description = text.slice(0, 4000);
-      await goTo(target, userId, draft, 'confirm');
+      // Лимит api — 4000 символов; длиннее MAX и не пришлёт, но обрезаем на всякий
+      // случай — по символам, эмодзи не разрезается (кейс 6 чек-листа).
+      draft.description = cutText(text, DESCRIPTION_LIMIT).text;
+      await goTo(target, userId, draft, 'confirm', withMedia ? messages.photoNotAttached : undefined);
       return;
     }
     // Ждём кнопку, а пришёл текст — напоминаем и повторяем вопрос.
@@ -1266,7 +1298,7 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
       // это было описание, оно и становится описанием заявки.
       if (userId !== undefined && draft) {
         if (draft.step === 'description' && text) {
-          draft.description = text.slice(0, 4000);
+          draft.description = cutText(text, DESCRIPTION_LIMIT).text;
           await goTo(target, userId, draft, 'confirm');
         } else {
           reportDraft.set(userId, draft);
@@ -1349,7 +1381,7 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
       const text = update.message?.body?.text?.trim();
 
       if (!text) {
-        await send(target, messages.nonText);
+        await handleNonText(target, sender?.user_id);
         return;
       }
 
@@ -1359,7 +1391,8 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
         return;
       }
 
-      await handleText(target, sender?.user_id, text);
+      const withMedia = (update.message?.body?.attachments ?? []).some((a) => a.type !== 'contact');
+      await handleText(target, sender?.user_id, text, withMedia);
       return;
     }
 
