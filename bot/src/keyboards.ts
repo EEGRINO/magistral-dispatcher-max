@@ -25,6 +25,9 @@ export const Action = {
   back: 'nav:back',
   /** «« Меню» — там, где меню заменилось другим экраном. */
   menu: 'nav:menu',
+  /** Незаконченная заявка: продолжить с того же шага или начать заново. */
+  resumeDraft: 'draft:resume',
+  restartDraft: 'draft:restart',
 } as const;
 
 /**
@@ -113,6 +116,12 @@ export function houseChatKeyboard(chatLink: string | null, botUsername: string |
 }
 
 export const cancelAddressKeyboard: MaxAttachment[] = keyboard([callback('Отмена', Action.cancelAddress)]);
+
+/** «Сообщить о проблеме» при незаконченной заявке (кейс 7 чек-листа). */
+export const resumeDraftKeyboard: MaxAttachment[] = keyboard([
+  callback('Продолжить', Action.resumeDraft),
+  callback('Начать заново', Action.restartDraft),
+]);
 
 // ── опасность ─────────────────────────────────────────────────────────────
 

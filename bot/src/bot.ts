@@ -56,6 +56,7 @@ import {
   ownerZoneKeyboard,
   placeKeyboard,
   requestContactKeyboard,
+  resumeDraftKeyboard,
   typeKeyboard,
 } from './keyboards.js';
 import { log } from './logger.js';
@@ -562,7 +563,11 @@ async function toOwnerZone(target: SendTarget, userId: number, draft: ReportDraf
 }
 
 /** «Сообщить о проблеме»: черновик с домом жителя и «Что случилось?». */
-async function startReport(target: SendTarget, userId: number | undefined): Promise<void> {
+async function startReport(
+  target: SendTarget,
+  userId: number | undefined,
+  options: { resume?: boolean } = {},
+): Promise<void> {
   if (userId === undefined) {
     await askContact(target);
     return;
@@ -571,6 +576,14 @@ async function startReport(target: SendTarget, userId: number | undefined): Prom
   if (resident === undefined) return;
   if (resident === null) {
     await askContact(target);
+    return;
+  }
+
+  // Заявка брошена на середине — не выбрасываем молча: продолжить или заново
+  // (кейс 7 чек-листа). На первом шаге терять нечего — просто начинаем.
+  const unfinished = reportDraft.get(userId);
+  if (options.resume !== false && unfinished && unfinished.step !== 'type' && unfinished.residentId === resident.id) {
+    await send(target, messages.draftResume(unfinished.type), resumeDraftKeyboard);
     return;
   }
 
@@ -1267,6 +1280,25 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
     case Action.report: {
       await answer('Сообщить о проблеме');
       await startReport(target, userId);
+      return;
+    }
+
+    case Action.resumeDraft: {
+      await answer('Продолжаем');
+      const draft = userId === undefined ? undefined : reportDraft.get(userId);
+      if (userId === undefined || !draft) {
+        await startReport(target, userId);
+        return;
+      }
+      reportDraft.set(userId, draft);
+      await askStep(target, draft);
+      return;
+    }
+
+    case Action.restartDraft: {
+      await answer('Начинаем заново');
+      if (userId !== undefined) reportDraft.delete(userId);
+      await startReport(target, userId, { resume: false });
       return;
     }
 
