@@ -207,6 +207,66 @@ export const UpdateResidentBody = Type.Object(
 export const AdminResidentResponse = Type.Object({ resident: AdminResident });
 export const AdminResidentListResponse = Type.Object({ residents: Type.Array(AdminResident) });
 
+// ── Смена статуса и уведомления (/admin/tickets, /notifications) ──────
+
+const TicketStatusValue = Type.Union([Type.Literal('new'), Type.Literal('in_progress'), Type.Literal('resolved')]);
+
+/** Заявка в списке УК/диспетчера: с адресом и ответственным. */
+export const AdminTicket = Type.Object({
+  id: Id,
+  resident_id: Id,
+  house_address: Nullable(Type.String()),
+  problem_type: Type.String(),
+  place: Nullable(Type.String()),
+  detail_code: Nullable(Type.String()),
+  description: Nullable(Type.String()),
+  rule_id: Nullable(Type.String()),
+  status: TicketStatusValue,
+  responsible_name: Nullable(Type.String()),
+  deadline_at: Nullable(Type.String({ format: 'date-time' })),
+  created_at: Type.String({ format: 'date-time' }),
+});
+
+export const AdminTicketListQuery = Type.Object(
+  {
+    house_id: Type.Optional(Id),
+    active: Type.Optional(Type.Boolean({ default: false })),
+  },
+  { additionalProperties: false },
+);
+
+export const AdminTicketListResponse = Type.Object({ tickets: Type.Array(AdminTicket) });
+
+export const ChangeStatusBody = Type.Object({ status: TicketStatusValue }, { additionalProperties: false });
+
+export const ChangeStatusResponse = Type.Object({
+  ticket: AdminTicket,
+  /** false — статус уже был таким, событие не записано, уведомления не будет. */
+  changed: Type.Boolean(),
+});
+
+/** Недоставленное уведомление о смене статуса — для бота. */
+export const PendingNotification = Type.Object({
+  event_id: Id,
+  ticket_id: Id,
+  new_status: TicketStatusValue,
+  problem_type: Type.String(),
+  responsible_name: Nullable(Type.String()),
+  /** Куда писать: диалог жителя с ботом. */
+  max_chat_id: Type.Integer(),
+});
+
+export const PendingNotificationsQuery = Type.Object(
+  { limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 20 })) },
+  { additionalProperties: false },
+);
+
+export const PendingNotificationsResponse = Type.Object({ notifications: Type.Array(PendingNotification) });
+
+export const EventIdParams = Type.Object({ event_id: Id });
+
+export const DeliveredResponse = Type.Object({ ok: Type.Literal(true) });
+
 // ── Заявка ─────────────────────────────────────────────────────────────
 
 export const TicketStatus = Type.Union([

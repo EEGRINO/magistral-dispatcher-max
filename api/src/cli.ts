@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 
-const HELP = `Дома и жители УК.
+const HELP = `Дома, жители и заявки УК.
 
 Дома:
   houses list
@@ -28,6 +28,11 @@ const HELP = `Дома и жители УК.
   residents edit <id> [те же поля, что у add]
   residents archive <id>
   residents import <файл.csv | -> [--dry-run]
+
+Заявки:
+  tickets list [--house <id>] [--active]
+  tickets status <id> <принята | в_работе | решена>
+                 Житель получит уведомление от бота в течение нескольких секунд.
 
 Значение «-» стирает поле: --apartment -, --chat -.
 Смена телефона снимает привязку к MAX — житель войдёт в бота заново.
@@ -176,6 +181,37 @@ async function residentFields(values: Values): Promise<Record<string, unknown>> 
   if (contract !== undefined) fields.contract_number = textOrClear(contract);
 
   return fields;
+}
+
+// ── заявки ─────────────────────────────────────────────────────────────
+
+interface AdminTicket {
+  id: number;
+  house_address: string | null;
+  problem_type: string;
+  place: string | null;
+  description: string | null;
+  rule_id: string | null;
+  status: 'new' | 'in_progress' | 'resolved';
+  responsible_name: string | null;
+  created_at: string;
+}
+
+const STATUS_RU = { new: 'принята', in_progress: 'в работе', resolved: 'решена' } as const;
+
+/** Статус из командной строки: коды api и русские слова. */
+const STATUS_ARG: Record<string, keyof typeof STATUS_RU> = {
+  new: 'new', принята: 'new',
+  in_progress: 'in_progress', в_работе: 'in_progress', 'в-работе': 'in_progress', работа: 'in_progress',
+  resolved: 'resolved', решена: 'resolved', решено: 'resolved',
+};
+
+function printTicket(t: AdminTicket): void {
+  console.log(
+    `#${t.id}  [${STATUS_RU[t.status]}]  ${t.problem_type}${t.place ? ` · ${t.place}` : ''}  ${t.created_at.slice(0, 10)}\n` +
+      `     ${t.house_address ?? 'дом не указан'}   ответственный: ${t.responsible_name ?? '—'}   правило: ${t.rule_id ?? '—'}` +
+      (t.description ? `\n     «${t.description}»` : ''),
+  );
 }
 
 // ── CSV ────────────────────────────────────────────────────────────────
@@ -336,6 +372,7 @@ async function main(argv: string[]): Promise<void> {
       apartment: { type: 'string' },
       contract: { type: 'string' },
       archived: { type: 'boolean' },
+      active: { type: 'boolean' },
       'dry-run': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -405,6 +442,28 @@ async function main(argv: string[]): Promise<void> {
       const id = idArg(target, 'жителя');
       const { resident } = await call<{ resident: Resident }>('POST', `/admin/residents/${id}/archive`);
       printResident(resident);
+      return;
+    }
+
+    case 'tickets list': {
+      const query = new URLSearchParams();
+      if (values.house !== undefined) query.set('house_id', String(idArg(values.house, 'дома')));
+      if (values.active) query.set('active', 'true');
+      const { tickets } = await call<{ tickets: AdminTicket[] }>('GET', `/admin/tickets?${query}`);
+      if (tickets.length === 0) console.log('Заявок нет.');
+      tickets.forEach(printTicket);
+      return;
+    }
+
+    case 'tickets status': {
+      const id = idArg(target, 'заявки');
+      const status = STATUS_ARG[(positionals[3] ?? '').toLowerCase()];
+      if (!status) throw new CliError('Новый статус: принята, в_работе или решена');
+      const result = await call<{ ticket: AdminTicket; changed: boolean }>('POST', `/admin/tickets/${id}/status`, {
+        status,
+      });
+      printTicket(result.ticket);
+      console.log(result.changed ? 'Статус изменён — житель получит уведомление.' : 'Статус уже был таким — ничего не изменилось.');
       return;
     }
 

@@ -64,6 +64,16 @@ export interface NewTicket {
   detailCode?: string | null;
 }
 
+/** Недоставленное уведомление о смене статуса (docs/api.md, /notifications). */
+export interface PendingNotification {
+  event_id: number;
+  ticket_id: number;
+  new_status: 'new' | 'in_progress' | 'resolved';
+  problem_type: string;
+  responsible_name: string | null;
+  max_chat_id: number;
+}
+
 /** Итог привязки: либо житель, либо «такого номера у УК нет». */
 export type LinkResult =
   | { kind: 'linked'; resident: Resident }
@@ -269,6 +279,20 @@ export class ApiClient {
       if (error instanceof ApiClientError && error.status === 404 && error.code === 'not_found') return null;
       throw error;
     }
+  }
+
+  /** Уведомления о смене статуса, которые житель ещё не получил. */
+  async pendingNotifications(signal?: AbortSignal): Promise<PendingNotification[]> {
+    const path = '/notifications/pending?limit=20';
+    const list = (await this.request('GET', path, undefined, signal) as { notifications?: PendingNotification[] })
+      .notifications;
+    if (!Array.isArray(list)) throw new ApiClientError(200, null, `В ответе ${path} нет notifications`);
+    return list;
+  }
+
+  /** Отметить уведомление доставленным — api запишет событие notified. */
+  async markDelivered(eventId: number, signal?: AbortSignal): Promise<void> {
+    await this.request('POST', `/notifications/${eventId}/delivered`, undefined, signal);
   }
 
   /** Житель, к которому уже привязан этот пользователь MAX; null — ещё не входил. */

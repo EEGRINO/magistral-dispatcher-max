@@ -129,6 +129,12 @@ export const config = {
   /** Таймаут запроса к api. Короткий: человек ждёт ответа в чате. */
   apiTimeoutMs: Number(process.env.API_TIMEOUT_MS ?? 5000),
 
+  /**
+   * Как часто бот забирает у api недоставленные уведомления о смене статуса.
+   * 5 секунд: житель видит изменение почти сразу, а api — один лёгкий запрос.
+   */
+  notifyIntervalMs: Number(process.env.NOTIFY_INTERVAL_MS ?? 5000),
+
   logLevel: process.env.LOG_LEVEL?.trim() || 'info',
 
   miniappTestUrl: readMiniappTestUrl(),
@@ -274,7 +280,8 @@ export const messages = {
     'Приоритет: экстренная\n' +
     routeLines(t) +
     '\n' +
-    'Чтобы проверить заявку в любой момент — напишите «Статус» или используйте команду /status.',
+    'Вы получите уведомление, когда статус изменится. Чтобы проверить заявку в любой момент — ' +
+    'напишите «Статус» или используйте команду /status.',
 
   emergencyTicketExists: (ticketId: number): string =>
     `Аварийная заявка № ${ticketId} уже передана диспетчеру. Если стало хуже — звоните 112.`,
@@ -350,9 +357,25 @@ export const messages = {
     'Статус: принята\n' +
     routeLines(t) +
     '\n' +
-    'Чтобы проверить заявку в любой момент — напишите «Статус» или используйте команду /status.',
+    'Вы получите уведомление, когда статус изменится. Чтобы проверить заявку в любой момент — ' +
+    'напишите «Статус» или используйте команду /status.',
 
   ticketCancelled: 'Заявка отменена.',
+
+  // TODO(Павел): черновик Игоря — у Павла текстов смены статуса нет.
+  /** Уведомление о смене статуса — бот шлёт сам, без запроса жителя. */
+  statusChanged: (n: { ticket_id: number; new_status: TicketStatus; problem_type: string; responsible_name: string | null }): string => {
+    const what = `Что: ${problemLabel(n.problem_type)}\n`;
+    const who = n.responsible_name ? `Ответственный: ${n.responsible_name}\n` : '';
+    switch (n.new_status) {
+      case 'in_progress':
+        return `Заявка №${n.ticket_id} взята в работу.\n\n${what}${who}\nПроверить в любой момент — «Статус».`;
+      case 'resolved':
+        return `Заявка №${n.ticket_id} решена ✅\n\n${what}${who}\nЕсли проблема осталась — нажмите «Сообщить о проблеме».`;
+      case 'new':
+        return `Заявка №${n.ticket_id} снова открыта — статус: принята.\n\n${what}${who}`.trimEnd();
+    }
+  },
 
   // ── «Статус» (тексты Павла, раздел 6) ────────────────────────────────
 

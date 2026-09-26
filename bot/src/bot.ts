@@ -1107,6 +1107,46 @@ async function handleUpdate(update: MaxUpdate): Promise<void> {
   }
 }
 
+// ── уведомления о смене статуса ───────────────────────────────────────────
+
+/**
+ * Петля «смена статуса → уведомление жителю»: раз в несколько секунд забираем
+ * у api недоставленные уведомления, пишем жителю и отмечаем доставленным.
+ *
+ * Сначала отправка, потом отметка: сбой между ними даст повтор сообщения, а не
+ * потерю — «решена» дважды лучше, чем ни разу. Ошибка MAX 4xx (кроме 429) —
+ * написать этому жителю нельзя (например, бот заблокирован): отмечаем, иначе
+ * бот ретраил бы его вечно. Сеть, 5xx, 429 — оставляем в очереди до следующего раза.
+ */
+async function notifyLoop(): Promise<void> {
+  while (running) {
+    try {
+      const pending = await apiClient.pendingNotifications(shutdown.signal);
+      for (const n of pending) {
+        if (!running) break;
+        try {
+          await send({ chatId: n.max_chat_id }, messages.statusChanged(n), menuKeyboard(await getBotUsername()));
+          log.info('уведомление о статусе отправлено', { ticket_id: n.ticket_id, status: n.new_status });
+        } catch (error) {
+          if (isAbort(error)) throw error;
+          const undeliverable =
+            error instanceof MaxApiError && error.status >= 400 && error.status < 500 && error.status !== 429;
+          if (!undeliverable) throw error;
+          log.warn('уведомление не доставить — снимаем с очереди', {
+            ticket_id: n.ticket_id,
+            status: (error as MaxApiError).status,
+          });
+        }
+        await apiClient.markDelivered(n.event_id, shutdown.signal);
+      }
+    } catch (error) {
+      if (isAbort(error) || !running) break;
+      log.warn('очередь уведомлений не обработана — повтор позже', { error: errorText(error) });
+    }
+    await sleep(config.notifyIntervalMs);
+  }
+}
+
 async function pollLoop(): Promise<void> {
   // null на первом запросе: MAX отдаст только свежие события, а не весь бэклог,
   // иначе при рестарте бот заспамит всех, кто писал, пока он лежал.
@@ -1193,6 +1233,16 @@ export async function run(): Promise<void> {
   // username была видна в логе сразу, а не при первом нажатии.
   await getBotUsername();
 
-  await pollLoop();
+  // Два независимых цикла: приём сообщений и доставка уведомлений о статусе.
+  // Уведомления не ждут long poll (до 90 с) и не мешают ему.
+  // Приём закончился (остановка или отозванный токен) — гасим и доставку,
+  // иначе процесс не завершится.
+  await Promise.all([
+    pollLoop().finally(() => {
+      running = false;
+      shutdown.abort();
+    }),
+    notifyLoop(),
+  ]);
   log.info('бот остановлен');
 }
