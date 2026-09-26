@@ -1,5 +1,6 @@
 import { Button, CellHeader, CellList, Container, Panel, Typography } from '@maxhub/max-ui';
 import { TicketCard } from '../components/TicketCard';
+import { canClose, closeMiniApp } from '../bridge';
 import type { House, Ticket } from '../types/domain';
 import { isActive } from '../types/domain';
 
@@ -56,6 +57,12 @@ export function TicketsScreen({ tickets, house, onOpenTicket, onReport, onHouseC
         <Button variant="secondary" size="large" stretched onClick={onHouseChat}>
           Чат дома
         </Button>
+        {/* «Отмена» на главном экране — закрыть мини-апп и вернуться в чат с ботом. */}
+        {canClose() && (
+          <Button variant="ghost" size="large" stretched onClick={closeMiniApp}>
+            Отмена
+          </Button>
+        )}
       </div>
     </Panel>
   );

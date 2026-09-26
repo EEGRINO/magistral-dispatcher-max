@@ -17,6 +17,8 @@ declare global {
     initDataUnsafe?: unknown;
     /** Диплинк внутри MAX (чат, канал, бот). */
     openMaxLink?: (url: string) => void;
+    /** Закрыть мини-приложение (событие WebAppClose; есть в max-web-app.js, docs/max-notes.md). */
+    close?: () => void;
   }
 
   interface Window {
