@@ -36,4 +36,7 @@ export const config = {
    * (docker-compose.yml); локально api запускается из api/, отсюда ../config.
    */
   rulesPath: process.env.RULES_PATH?.trim() || '../config/rules.yaml',
+
+  /** Как часто разбирать адреса домов, заведённых в БД напрямую (house-normalizer.ts). */
+  houseNormalizeIntervalMs: Number(process.env.HOUSE_NORMALIZE_INTERVAL_MS ?? 60_000),
 } as const;

@@ -1,7 +1,8 @@
 /**
  * Петля «смена статуса → уведомление жителю». Согласовано 26.09.2026.
  *
- *   УК / диспетчер: POST /admin/tickets/:id/status  → событие status_changed
+ *   УК / диспетчер: POST /admin/tickets/:id/status или правка в pgAdmin
+ *                   → событие status_changed (пишет триггер БД, миграция 0007)
  *   бот, раз в несколько секунд: GET /notifications/pending
  *   бот, отправив жителю:        POST /notifications/:event_id/delivered → событие notified
  *
@@ -125,8 +126,8 @@ export const dispatchRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async
       const { id } = request.params;
       const { status } = request.body;
 
-      // Статус и событие — в одной транзакции: событие без смены статуса
-      // (или наоборот) дало бы жителю уведомление о том, чего не было.
+      // Событие status_changed пишет триггер БД (миграция 0007) — в той же
+      // транзакции, что и смена статуса, и так же при правке в pgAdmin.
       const changed = await withTransaction(async (client) => {
         const current = await client.query<{ status: Status }>('SELECT status FROM tickets WHERE id = $1 FOR UPDATE', [
           id,
@@ -135,13 +136,8 @@ export const dispatchRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async
         if (!before) throw notFound(`Заявка ${id} не найдена`);
         if (before.status === status) return false;
 
-        // updated_at обновит триггер (0001).
+        // updated_at и событие status_changed — триггеры БД (0001, 0007).
         await client.query('UPDATE tickets SET status = $2 WHERE id = $1', [id, status]);
-        await client.query(
-          `INSERT INTO ticket_events (ticket_id, event_type, old_status, new_status)
-           VALUES ($1, 'status_changed', $2, $3)`,
-          [id, before.status, status],
-        );
         return true;
       });
 

@@ -9,6 +9,7 @@ try {
   const { config } = await import('./config.js');
   const { pool } = await import('./db.js');
   const { loadRules } = await import('./routing.js');
+  const { startHouseNormalizer } = await import('./house-normalizer.js');
 
   // Правила — до старта: с битым rules.yaml api не поднимается (routing.ts).
   const rules = loadRules(config.rulesPath);
@@ -20,6 +21,9 @@ try {
   // значит быть недоступным и с хоста, и из других сервисов compose.
   await app.listen({ host: '0.0.0.0', port: config.port });
 
+  // Дома, заведённые в pgAdmin, — разобрать адрес на улицу и номер.
+  const stopHouseNormalizer = startHouseNormalizer(app.log, config.houseNormalizeIntervalMs);
+
   let shuttingDown = false;
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -28,6 +32,7 @@ try {
       shuttingDown = true;
 
       app.log.info({ signal }, 'остановка');
+      stopHouseNormalizer();
 
       // Сначала перестаём принимать запросы, потом закрываем пул —
       // иначе запрос в полёте упадёт на закрытом соединении.
