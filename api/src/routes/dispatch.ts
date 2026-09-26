@@ -32,7 +32,7 @@ import {
   TicketIdParams,
 } from '../schemas.js';
 
-type Status = 'new' | 'in_progress' | 'resolved';
+type Status = 'new' | 'in_progress' | 'resolved' | 'cancelled';
 
 interface AdminTicketRow {
   id: number;
@@ -99,7 +99,7 @@ export const dispatchRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async
         values.push(request.query.house_id);
         where.push(`t.house_id = $${values.length}`);
       }
-      if (request.query.active) where.push("t.status <> 'resolved'");
+      if (request.query.active) where.push("t.status IN ('new', 'in_progress')");
 
       const { rows } = await pool.query<AdminTicketRow>(
         `${ADMIN_TICKET_SELECT}

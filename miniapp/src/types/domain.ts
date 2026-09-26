@@ -48,14 +48,18 @@ export const DANGER_TYPES = {
 } as const;
 export type DangerType = keyof typeof DANGER_TYPES;
 
-export type TicketStatus = 'new' | 'in_progress' | 'resolved';
+export type TicketStatus = 'new' | 'in_progress' | 'resolved' | 'cancelled';
 
 /** Подписи статусов — свои у мини-аппа (решение 24.09.2026), коды — api. */
 export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
   new: 'В рассмотрении',
   in_progress: 'В работе',
   resolved: 'Решено',
+  cancelled: 'Отменена',
 };
+
+/** Незакрытая заявка: ещё ждёт или в работе. */
+export const isActive = (status: TicketStatus): boolean => status === 'new' || status === 'in_progress';
 
 /** Поля объекта Ticket из docs/api.md, которые показывает мини-апп. */
 export interface Ticket {
@@ -92,7 +96,16 @@ export function placeLabel(place: string | null): string | null {
   return place !== null && place in PLACES ? PLACES[place as Place] : null;
 }
 
-/** Дата подачи — по Москве, как у бота: иначе ночная заявка покажет «вчера». */
-const createdDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
+/**
+ * Дата и время подачи — «26.09.2026, 17:34» в часовом поясе устройства жителя
+ * (решение 26.09.2026): браузер его знает, в отличие от бота.
+ */
+const createdDate = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
 
 export const formatCreated = (iso: string): string => createdDate.format(new Date(iso));

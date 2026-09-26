@@ -1,6 +1,7 @@
 import { Button, CellHeader, CellList, Container, Panel, Typography } from '@maxhub/max-ui';
 import { TicketCard } from '../components/TicketCard';
 import type { House, Ticket } from '../types/domain';
+import { isActive } from '../types/domain';
 
 interface TicketsScreenProps {
   tickets: Ticket[];
@@ -11,8 +12,8 @@ interface TicketsScreenProps {
 }
 
 export function TicketsScreen({ tickets, house, onOpenTicket, onReport, onHouseChat }: TicketsScreenProps) {
-  const active = tickets.filter((ticket) => ticket.status !== 'resolved');
-  const resolved = tickets.filter((ticket) => ticket.status === 'resolved');
+  const active = tickets.filter((ticket) => isActive(ticket.status));
+  const closed = tickets.filter((ticket) => !isActive(ticket.status));
 
   const section = (title: string, list: Ticket[]) =>
     list.length > 0 && (
@@ -43,7 +44,7 @@ export function TicketsScreen({ tickets, house, onOpenTicket, onReport, onHouseC
         ) : (
           <>
             {section('Активные', active)}
-            {section('Решённые', resolved)}
+            {section('Завершённые', closed)}
           </>
         )}
       </div>

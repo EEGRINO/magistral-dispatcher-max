@@ -10,10 +10,30 @@ import { PLACES, PROBLEM_TYPES, isPlace, type OwnerZone, type Place, type Proble
 import { STATUS_LABELS, isEmergency, problemLabel, type TicketStatus } from './status.js';
 
 /**
- * Дата подачи заявки — по Москве: бот и БД живут в UTC, а житель видит
- * «вчера» вместо «сегодня», если заявку подали ночью. Для MVP один часовой пояс.
+ * Время подачи заявки — «26.09.2026, 17:34» в часовом поясе дома (решение
+ * 26.09.2026): бот и БД живут в UTC, а пояс жителя MAX боту не сообщает.
+ * Житель и дом обычно в одном городе. Неизвестный пояс — Москва.
  */
-const createdDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+function formatCreated(iso: string, timeZone: string): string {
+  let format = dateFormats.get(timeZone);
+  if (!format) {
+    const options: Intl.DateTimeFormatOptions = {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    };
+    try {
+      format = new Intl.DateTimeFormat('ru-RU', { ...options, timeZone });
+    } catch {
+      format = new Intl.DateTimeFormat('ru-RU', { ...options, timeZone: 'Europe/Moscow' });
+    }
+    dateFormats.set(timeZone, format);
+  }
+  return format.format(new Date(iso));
+}
 
 /** Заявка для текстов «Статус» — поля из api (docs/api.md, объект Ticket). */
 export interface TicketView {
@@ -26,6 +46,7 @@ export interface TicketView {
   responsible_name: string | null;
   deadline_at: string | null;
   deadline_verified: boolean;
+  timezone: string;
 }
 
 /** «Осталось»: часы до двух суток, дальше — сутки. */
@@ -44,14 +65,15 @@ function timeLeft(deadlineIso: string): string {
 function routeLines(t: Pick<TicketView, 'responsible_name' | 'deadline_at' | 'deadline_verified' | 'status'>): string {
   const lines: string[] = [];
   if (t.responsible_name) lines.push(`Ответственный: ${t.responsible_name}`);
-  if (t.deadline_verified && t.deadline_at && t.status !== 'resolved') {
+  if (t.deadline_verified && t.deadline_at && (t.status === 'new' || t.status === 'in_progress')) {
     lines.push(`Осталось по нормативному сроку: ${timeLeft(t.deadline_at)}`);
   }
   return lines.map((line) => `${line}\n`).join('');
 }
 
-/** Строка списка: «№3 — 💧 Протечка / потоп, принята». */
-const ticketLine = (t: TicketView): string => `№${t.id} — ${problemLabel(t.problem_type)}, ${STATUS_LABELS[t.status]}`;
+/** Строка списка: «№3 — 💧 Протечка / потоп, принята · 26.09.2026, 17:34». */
+const ticketLine = (t: TicketView): string =>
+  `№${t.id} — ${problemLabel(t.problem_type)}, ${STATUS_LABELS[t.status]} · ${formatCreated(t.created_at, t.timezone)}`;
 
 /** Сколько строк в списке «несколько активных заявок». */
 const LIST_LIMIT = 10;
@@ -261,6 +283,7 @@ export const messages = {
     `Номер заявки: ${t.id}\n` +
     'Статус: принята\n' +
     'Приоритет: экстренная\n' +
+    `Подана: ${formatCreated(t.created_at, t.timezone)}\n` +
     routeLines(t) +
     '\n' +
     'Вы получите уведомление, когда статус изменится. Чтобы проверить заявку в любой момент — ' +
@@ -338,12 +361,23 @@ export const messages = {
     'Заявка зарегистрирована.\n\n' +
     `Номер заявки: ${t.id}\n` +
     'Статус: принята\n' +
+    `Подана: ${formatCreated(t.created_at, t.timezone)}\n` +
     routeLines(t) +
     '\n' +
     'Вы получите уведомление, когда статус изменится. Чтобы проверить заявку в любой момент — ' +
     'напишите «Статус» или используйте команду /status.',
 
   ticketCancelled: 'Заявка отменена.',
+
+  // ── отмена заявки жителем (решение 26.09.2026: только «принятую») ────
+
+  confirmCancel: (ticketId: number): string =>
+    `Отменить заявку №${ticketId}? Она останется в истории со статусом «отменена».`,
+
+  ticketCancelledByResident: (ticketId: number): string => `Заявка №${ticketId} отменена.`,
+
+  notCancellable: (ticketId: number): string =>
+    `Заявку №${ticketId} уже взяли в работу или закрыли — отменить её можно только через УК.`,
 
   // TODO(Павел): черновик Игоря — у Павла текстов смены статуса нет.
   /** Уведомление о смене статуса — бот шлёт сам, без запроса жителя. */
@@ -357,6 +391,10 @@ export const messages = {
         return `Заявка №${n.ticket_id} решена ✅\n\n${what}${who}\nЕсли проблема осталась — нажмите «Сообщить о проблеме в чате».`;
       case 'new':
         return `Заявка №${n.ticket_id} снова открыта — статус: принята.\n\n${what}${who}`.trimEnd();
+      case 'cancelled':
+        // Отмену самим жителем бот не присылает (api сразу отмечает её доставленной) —
+        // сюда попадает только отмена со стороны УК.
+        return `Заявка №${n.ticket_id} отменена управляющей компанией.\n\n${what}${who}`.trimEnd();
     }
   },
 
@@ -372,7 +410,7 @@ export const messages = {
     routeLines(t) +
     `Что: ${problemLabel(t.problem_type)}\n` +
     (t.place && isPlace(t.place) ? `Где: ${PLACES[t.place]}\n` : '') +
-    `Подана: ${createdDate.format(new Date(t.created_at))}` +
+    `Подана: ${formatCreated(t.created_at, t.timezone)}` +
     (t.description ? `\nОписание: ${t.description}` : ''),
 
   ticketList: (tickets: TicketView[]): string =>

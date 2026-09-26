@@ -61,12 +61,37 @@ function appRow(botUsername: string | null): Button[][] {
  * запасной путь и не скрывается никогда: бот не может знать, откроется ли
  * мини-апп у жителя (белые списки, клиент MAX), а диалог в чате работает всегда.
  */
-export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
-  return keyboard([
+function menuRows(botUsername: string | null): Button[][] {
+  return [
     ...appRow(botUsername),
     callback('Сообщить о проблеме в чате', Action.report),
     callback('Мои заявки', Action.tickets),
     callback('Чат дома', Action.houseChat),
+  ];
+}
+
+export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
+  return keyboard(menuRows(botUsername));
+}
+
+/** Отмена заявки: tc:ask:<id> → подтверждение → tc:yes:<id> / tc:no:<id>. */
+export const cancelAction = (step: 'ask' | 'yes' | 'no', ticketId: number): string => `tc:${step}:${ticketId}`;
+
+/** Подробности заявки: «Отменить заявку» — только у «принятой», дальше меню. */
+export function ticketDetailsKeyboard(
+  ticket: { id: number; status: string },
+  botUsername: string | null,
+): MaxAttachment[] {
+  return keyboard([
+    ...(ticket.status === 'new' ? [callback('Отменить заявку', cancelAction('ask', ticket.id))] : []),
+    ...menuRows(botUsername),
+  ]);
+}
+
+export function confirmCancelKeyboard(ticketId: number): MaxAttachment[] {
+  return keyboard([
+    callback('Да, отменить', cancelAction('yes', ticketId)),
+    callback('Нет, оставить', cancelAction('no', ticketId)),
   ]);
 }
 

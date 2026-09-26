@@ -8,6 +8,7 @@ import { notFound } from '../errors.js';
 import { rejectProxied } from '../internal-only.js';
 import type { Rules } from '../routing.js';
 import {
+  CancelTicketBody,
   CreateTicketBody,
   ErrorResponse,
   ResidentIdParams,
@@ -17,7 +18,7 @@ import {
   TicketResponse,
   type TicketRow,
 } from '../schemas.js';
-import { TICKET_SELECT, createTicket, residentTickets, ticketDto } from '../ticket-store.js';
+import { TICKET_SELECT, cancelTicket, createTicket, residentTickets, ticketDto } from '../ticket-store.js';
 
 export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (app, { rules }) => {
   // Внутренние: бот передаёт resident_id, и api ему верит. Снаружи — 404,
@@ -41,6 +42,23 @@ export const ticketRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (
       const { resident_id, problem_type, place = null, description = null, detail_code = null } = request.body;
       const ticket = await createTicket(rules, request.log, { resident_id, problem_type, place, description, detail_code });
       return reply.code(201).send({ ticket: ticketDto(rules, ticket) });
+    },
+  );
+
+  app.post(
+    '/tickets/:id/cancel',
+    {
+      schema: {
+        description: 'Житель отменяет свою «принятую» заявку (бот передаёт resident_id)',
+        params: TicketIdParams,
+        body: CancelTicketBody,
+        response: { 200: TicketResponse, 404: ErrorResponse, 409: ErrorResponse },
+      },
+    },
+    async (request) => {
+      const ticket = await cancelTicket(request.body.resident_id, request.params.id);
+      request.log.info({ resident_id: request.body.resident_id, ticket_id: ticket.id }, 'заявка отменена жителем');
+      return { ticket: ticketDto(rules, ticket) };
     },
   );
 

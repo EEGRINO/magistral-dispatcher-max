@@ -57,6 +57,11 @@ export async function loadTickets(): Promise<Ticket[]> {
   return (await call<{ tickets: Ticket[] }>('GET', '/tickets')).tickets;
 }
 
+/** Отменить свою заявку — только «принятую» (иначе ApiError с кодом not_cancellable). */
+export async function cancelTicket(id: number): Promise<Ticket> {
+  return (await call<{ ticket: Ticket }>('POST', `/tickets/${id}/cancel`)).ticket;
+}
+
 /** Подать заявку — api маршрутизирует её так же, как заявку из бота. */
 export async function createTicket(draft: TicketDraft): Promise<Ticket> {
   return (await call<{ ticket: Ticket }>('POST', '/tickets', draft)).ticket;

@@ -24,7 +24,7 @@
  * Модуль импортируется динамически из index.ts, поэтому падение валидации
  * конфига долетает до обработчика как обычная ошибка, а не как стектрейс.
  */
-import { ApiClient, ApiClientError, type House, type Resident } from './api-client.js';
+import { ApiClient, ApiClientError, type House, type Resident, type Ticket } from './api-client.js';
 import { findContact, verifyContact } from './auth.js';
 import { config, messages } from './config.js';
 import { awaitingAddress, pendingDangerText, pendingInvite, recentEmergency, reportDraft } from './dialog-state.js';
@@ -34,6 +34,8 @@ import {
   Action,
   cancelAddressKeyboard,
   clarifyKeyboard,
+  confirmCancelKeyboard,
+  ticketDetailsKeyboard,
   confirmDangerKeyboard,
   confirmTicketKeyboard,
   descriptionKeyboard,
@@ -647,7 +649,7 @@ async function showTickets(target: SendTarget, userId: number | undefined): Prom
     log.info('мои заявки', { resident_id: resident.id, active: tickets.length });
 
     if (tickets.length === 0) await sendMenu(target, messages.noActiveTickets);
-    else if (tickets.length === 1) await sendMenu(target, messages.ticketDetails(tickets[0]!));
+    else if (tickets.length === 1) await sendTicketDetails(target, tickets[0]!);
     else await sendMenu(target, messages.ticketList(tickets));
   } catch (error) {
     await serviceUnavailable(target, 'при «Мои заявки»', { resident_id: resident.id }, error);
@@ -669,9 +671,52 @@ async function showTicket(target: SendTarget, userId: number | undefined, ticket
       await sendMenu(target, messages.ticketNotFound(ticketId));
       return;
     }
-    await sendMenu(target, messages.ticketDetails(ticket));
+    await sendTicketDetails(target, ticket);
   } catch (error) {
     await serviceUnavailable(target, 'при «статус N»', { resident_id: resident.id, ticket_id: ticketId }, error);
+  }
+}
+
+/** Подробности заявки с кнопкой «Отменить заявку» (если можно) и меню. */
+async function sendTicketDetails(target: SendTarget, ticket: Ticket): Promise<void> {
+  await send(target, messages.ticketDetails(ticket), ticketDetailsKeyboard(ticket, await getBotUsername()));
+}
+
+/**
+ * Отмена заявки жителем: tc:ask — «точно?», tc:yes — отменить, tc:no — вернуть
+ * подробности. Только своя и только «принятая» — проверяет api.
+ */
+async function handleCancelButton(target: SendTarget, userId: number | undefined, payload: string): Promise<void> {
+  const [, step, rawId] = payload.split(':');
+  const ticketId = Number(rawId);
+  if (!Number.isSafeInteger(ticketId) || ticketId < 1) {
+    await showMenu(target, userId);
+    return;
+  }
+
+  if (step === 'ask') {
+    await send(target, messages.confirmCancel(ticketId), confirmCancelKeyboard(ticketId));
+    return;
+  }
+  if (step === 'no') {
+    await showTicket(target, userId, ticketId);
+    return;
+  }
+
+  const resident = await requireResident(target, userId, 'при отмене заявки');
+  if (!resident) return;
+  try {
+    const result = await apiClient.cancelTicket(resident.id, ticketId, shutdown.signal);
+    if (result.kind === 'ok') {
+      log.info('заявка отменена жителем', { resident_id: resident.id, ticket_id: ticketId });
+      await sendMenu(target, messages.ticketCancelledByResident(ticketId));
+    } else if (result.kind === 'not_cancellable') {
+      await sendMenu(target, messages.notCancellable(ticketId));
+    } else {
+      await sendMenu(target, messages.ticketNotFound(ticketId));
+    }
+  } catch (error) {
+    await serviceUnavailable(target, 'при отмене заявки', { resident_id: resident.id, ticket_id: ticketId }, error);
   }
 }
 
@@ -964,6 +1009,12 @@ async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<vo
       reportDraft.delete(userId);
     }
     await registerEmergency(target, userId, type, text ?? null);
+    return;
+  }
+
+  if (payload.startsWith('tc:')) {
+    await answer('Принято');
+    await handleCancelButton(target, userId, payload);
     return;
   }
 

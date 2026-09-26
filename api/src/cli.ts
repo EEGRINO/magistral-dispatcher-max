@@ -31,7 +31,7 @@ const HELP = `Дома, жители и заявки УК.
 
 Заявки:
   tickets list [--house <id>] [--active]
-  tickets status <id> <принята | в_работе | решена>
+  tickets status <id> <принята | в_работе | решена | отменена>
                  Житель получит уведомление от бота в течение нескольких секунд.
 
 Значение «-» стирает поле: --apartment -, --chat -.
@@ -192,18 +192,19 @@ interface AdminTicket {
   place: string | null;
   description: string | null;
   rule_id: string | null;
-  status: 'new' | 'in_progress' | 'resolved';
+  status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
   responsible_name: string | null;
   created_at: string;
 }
 
-const STATUS_RU = { new: 'принята', in_progress: 'в работе', resolved: 'решена' } as const;
+const STATUS_RU = { new: 'принята', in_progress: 'в работе', resolved: 'решена', cancelled: 'отменена' } as const;
 
 /** Статус из командной строки: коды api и русские слова. */
 const STATUS_ARG: Record<string, keyof typeof STATUS_RU> = {
   new: 'new', принята: 'new',
   in_progress: 'in_progress', в_работе: 'in_progress', 'в-работе': 'in_progress', работа: 'in_progress',
   resolved: 'resolved', решена: 'resolved', решено: 'resolved',
+  cancelled: 'cancelled', отменена: 'cancelled',
 };
 
 function printTicket(t: AdminTicket): void {

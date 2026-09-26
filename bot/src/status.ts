@@ -34,7 +34,7 @@ export function parseTicketNumber(text: string): number | null {
 }
 
 /** Статусы заявки для жителя. «принята» — как в текстах Павла. */
-export const STATUS_LABELS = { new: 'принята', in_progress: 'в работе', resolved: 'решена' } as const;
+export const STATUS_LABELS = { new: 'принята', in_progress: 'в работе', resolved: 'решена', cancelled: 'отменена' } as const;
 export type TicketStatus = keyof typeof STATUS_LABELS;
 
 const DANGER_LABELS: Record<DangerType, string> = {

@@ -22,6 +22,7 @@ import {
   MaxUserIdParams,
   ResidentIdParams,
   ResidentResponse,
+  DEFAULT_TIMEZONE,
   toResidentDto,
   type HouseDto,
   type ResidentRow,
@@ -40,9 +41,10 @@ export async function houseOfResident(residentId: number): Promise<HouseDto | nu
     emergency_phone: string | null;
     has_gas: boolean | null;
     uk_name: string | null;
+    timezone: string | null;
   }>(
     `SELECT h.id AS house_id, h.address, h.chat_link, h.emergency_phone, h.has_gas,
-            o.name AS uk_name
+            o.name AS uk_name, h.timezone
        FROM residents r
        LEFT JOIN houses h ON h.id = r.house_id
        LEFT JOIN organizations o ON o.id = h.organization_id
@@ -60,6 +62,7 @@ export async function houseOfResident(residentId: number): Promise<HouseDto | nu
     emergency_phone: row.emergency_phone,
     has_gas: row.has_gas ?? true,
     uk_name: row.uk_name,
+    timezone: row.timezone ?? DEFAULT_TIMEZONE,
   };
 }
 

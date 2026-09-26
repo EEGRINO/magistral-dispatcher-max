@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Container, Panel, Spinner, Typography } from '@maxhub/max-ui';
-import { ApiError, createTicket, hasInitData, loadHouse, loadTickets } from './api';
+import { ApiError, cancelTicket, createTicket, hasInitData, loadHouse, loadTickets } from './api';
 import type { TicketDraft } from './scenario';
 import { HouseChatScreen } from './screens/HouseChatScreen';
 import { NewTicketScreen } from './screens/NewTicketScreen';
@@ -60,6 +60,11 @@ export function App() {
     void refresh();
   };
 
+  async function cancel(id: number): Promise<void> {
+    const cancelled = await cancelTicket(id);
+    setTickets((current) => current.map((t) => (t.id === id ? cancelled : t)));
+  }
+
   async function submit(draft: TicketDraft): Promise<Ticket> {
     const ticket = await createTicket(draft);
     setTickets((current) => [ticket, ...current]);
@@ -109,7 +114,7 @@ export function App() {
       return <HouseChatScreen house={house} onBack={toList} />;
     case 'ticket': {
       const ticket = tickets.find((t) => t.id === screen.id);
-      if (ticket) return <TicketScreen ticket={ticket} onBack={toList} />;
+      if (ticket) return <TicketScreen ticket={ticket} onBack={toList} onCancel={() => cancel(ticket.id)} />;
       break;
     }
   }

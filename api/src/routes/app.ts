@@ -18,8 +18,15 @@ import { pool } from '../db.js';
 import { initDataInvalid, miniappDisabled, notLinked } from '../errors.js';
 import { verifyInitData } from '../init-data.js';
 import type { Rules } from '../routing.js';
-import { AppCreateTicketBody, AppMeResponse, ErrorResponse, TicketListResponse, TicketResponse } from '../schemas.js';
-import { createTicket, residentTickets, ticketDto } from '../ticket-store.js';
+import {
+  AppCreateTicketBody,
+  AppMeResponse,
+  ErrorResponse,
+  TicketIdParams,
+  TicketListResponse,
+  TicketResponse,
+} from '../schemas.js';
+import { cancelTicket, createTicket, residentTickets, ticketDto } from '../ticket-store.js';
 import { houseOfResident } from './residents.js';
 
 /** Житель по подписанному initData; иначе — ошибка с понятным кодом. */
@@ -103,6 +110,23 @@ export const appRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async (app
       });
       request.log.info({ resident_id: residentId, ticket_id: ticket.id, rule: ticket.rule_id }, 'заявка из мини-аппа');
       return reply.code(201).send({ ticket: ticketDto(rules, ticket) });
+    },
+  );
+
+  app.post(
+    '/app/tickets/:id/cancel',
+    {
+      schema: {
+        description: 'Мини-апп: отменить свою «принятую» заявку; чужая — 404',
+        params: TicketIdParams,
+        response: { 200: TicketResponse, 404: ErrorResponse, 409: ErrorResponse, ...AuthErrors },
+      },
+    },
+    async (request) => {
+      const residentId = await authenticate(request);
+      const ticket = await cancelTicket(residentId, request.params.id);
+      request.log.info({ resident_id: residentId, ticket_id: ticket.id }, 'заявка отменена жителем (мини-апп)');
+      return { ticket: ticketDto(rules, ticket) };
     },
   );
 };

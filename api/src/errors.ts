@@ -39,6 +39,10 @@ export const addressUnrecognized = (): ApiError =>
 export const residentArchived = (): ApiError =>
   new ApiError(409, 'resident_archived', 'Житель в архиве — изменения запрещены');
 
+/** Отменить можно только «принятую» заявку (решение 26.09.2026). */
+export const notCancellable = (): ApiError =>
+  new ApiError(409, 'not_cancellable', 'Заявку уже взяли в работу или закрыли — отменить её можно только через УК');
+
 /** Мини-апп: initData нет, подпись не сошлась или устарела — открыть заново из бота. */
 export const initDataInvalid = (): ApiError =>
   new ApiError(401, 'init_data_invalid', 'Откройте мини-приложение заново из бота в MAX');

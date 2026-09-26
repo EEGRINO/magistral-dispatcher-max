@@ -35,6 +35,8 @@ export interface House {
   emergency_phone: string | null;
   has_gas: boolean;
   uk_name: string | null;
+  /** Часовой пояс дома (IANA). */
+  timezone: string;
 }
 
 /** Заявка — только поля, которые нужны боту. Полный объект — docs/api.md. */
@@ -52,7 +54,9 @@ export interface Ticket {
   deadline_at: string | null;
   /** Срок сверен с первоисточником — только тогда его можно показать жителю. */
   deadline_verified: boolean;
-  status: 'new' | 'in_progress' | 'resolved';
+  status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
+  /** Часовой пояс дома заявки — время подачи показываем по нему. */
+  timezone: string;
   created_at: string;
 }
 
@@ -68,7 +72,7 @@ export interface NewTicket {
 export interface PendingNotification {
   event_id: number;
   ticket_id: number;
-  new_status: 'new' | 'in_progress' | 'resolved';
+  new_status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
   problem_type: string;
   responsible_name: string | null;
   max_chat_id: number;
@@ -264,6 +268,27 @@ export class ApiClient {
       throw new ApiClientError(200, null, `В ответе ${path} нет tickets`);
     }
     return tickets;
+  }
+
+/**
+   * Житель отменяет свою заявку. not_found — чужая или нет такой;
+   * not_cancellable — её уже взяли в работу или закрыли.
+   */
+  async cancelTicket(
+    residentId: number,
+    ticketId: number,
+    signal?: AbortSignal,
+  ): Promise<{ kind: 'ok'; ticket: Ticket } | { kind: 'not_found' } | { kind: 'not_cancellable' }> {
+    const path = `/tickets/${ticketId}/cancel`;
+    try {
+      const ticket = (await this.request('POST', path, { resident_id: residentId }, signal) as { ticket?: Ticket }).ticket;
+      if (typeof ticket?.id !== 'number') throw new ApiClientError(200, null, `В ответе ${path} нет ticket.id`);
+      return { kind: 'ok', ticket };
+    } catch (error) {
+      if (error instanceof ApiClientError && error.code === 'not_found') return { kind: 'not_found' };
+      if (error instanceof ApiClientError && error.code === 'not_cancellable') return { kind: 'not_cancellable' };
+      throw error;
+    }
   }
 
   /** Заявка по номеру; null — такой нет. Чья она — проверяет вызывающий. */

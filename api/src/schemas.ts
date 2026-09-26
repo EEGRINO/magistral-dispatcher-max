@@ -94,6 +94,8 @@ export const House = Type.Object({
   has_gas: Type.Boolean(),
   /** Название УК/ТСЖ дома — «оформлю срочную заявку в …»; null — не указана. */
   uk_name: Nullable(Type.String()),
+  /** Часовой пояс дома (IANA) — по нему бот показывает время подачи заявки. */
+  timezone: Type.String(),
 });
 
 export const ResidentIdParams = Type.Object({ id: Id });
@@ -228,7 +230,12 @@ export const AppCreateTicketBody = Type.Object(
 
 // ── Смена статуса и уведомления (/admin/tickets, /notifications) ──────
 
-const TicketStatusValue = Type.Union([Type.Literal('new'), Type.Literal('in_progress'), Type.Literal('resolved')]);
+const TicketStatusValue = Type.Union([
+  Type.Literal('new'),
+  Type.Literal('in_progress'),
+  Type.Literal('resolved'),
+  Type.Literal('cancelled'),
+]);
 
 /** Заявка в списке УК/диспетчера: с адресом и ответственным. */
 export const AdminTicket = Type.Object({
@@ -288,10 +295,12 @@ export const DeliveredResponse = Type.Object({ ok: Type.Literal(true) });
 
 // ── Заявка ─────────────────────────────────────────────────────────────
 
+/** cancelled — отменил житель, пока заявка была «принята» (0008); заявка остаётся в БД. */
 export const TicketStatus = Type.Union([
   Type.Literal('new'),
   Type.Literal('in_progress'),
   Type.Literal('resolved'),
+  Type.Literal('cancelled'),
 ]);
 
 export const Ticket = Type.Object({
@@ -312,6 +321,8 @@ export const Ticket = Type.Object({
   responsible_name: Nullable(Type.String()),
   /** Срок сверен с первоисточником — только тогда deadline_at можно показывать жителю. */
   deadline_verified: Type.Boolean(),
+  /** Часовой пояс дома заявки (IANA) — для времени подачи в боте; дом неизвестен — Europe/Moscow. */
+  timezone: Type.String(),
   status: TicketStatus,
   assigned_organization_id: Nullable(Id),
   deadline_at: Nullable(Type.String({ format: 'date-time' })),
@@ -335,6 +346,9 @@ export const CreateTicketBody = Type.Object(
 export const TicketResponse = Type.Object({ ticket: Ticket });
 
 export const TicketIdParams = Type.Object({ id: Id });
+
+/** Бот отменяет заявку от имени жителя — заявка должна быть его. */
+export const CancelTicketBody = Type.Object({ resident_id: Id }, { additionalProperties: false });
 
 export const ResidentTicketsQuery = Type.Object(
   {
@@ -377,7 +391,8 @@ export interface TicketRow {
   detail_code: string | null;
   rule_id: string | null;
   assigned_organization_name: string | null;
-  status: 'new' | 'in_progress' | 'resolved';
+  house_timezone: string | null;
+  status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
   assigned_organization_id: number | null;
   deadline_at: Date | null;
   created_at: Date;
@@ -391,6 +406,9 @@ export const toResidentDto = (row: ResidentRow): ResidentDto => ({
   max_user_id: row.max_user_id,
   created_at: row.created_at.toISOString(),
 });
+
+/** Дом неизвестен — время заявки показываем по Москве, как по умолчанию у дома (0008). */
+export const DEFAULT_TIMEZONE = 'Europe/Moscow';
 
 /** Что о заявке знает только маршрутизация (rules.yaml), а не строка БД. */
 export interface TicketRouteView {
@@ -409,6 +427,7 @@ export const toTicketDto = (row: TicketRow, route: TicketRouteView): TicketDto =
   rule_id: row.rule_id,
   responsible_name: route.responsible_name,
   deadline_verified: route.deadline_verified,
+  timezone: row.house_timezone ?? DEFAULT_TIMEZONE,
   status: row.status,
   assigned_organization_id: row.assigned_organization_id,
   deadline_at: row.deadline_at ? row.deadline_at.toISOString() : null,

@@ -9,7 +9,7 @@
  */
 import type { FastifyBaseLogger } from 'fastify';
 import { pool, withTransaction } from './db.js';
-import { notFound } from './errors.js';
+import { notCancellable, notFound } from './errors.js';
 import { MANUAL_RULE_ID, RESPONSIBLE_LABEL, resolve, type Responsible, type Rules } from './routing.js';
 import { toTicketDto, type TicketDto, type TicketRow } from './schemas.js';
 
@@ -17,9 +17,10 @@ import { toTicketDto, type TicketDto, type TicketRow } from './schemas.js';
 export const TICKET_SELECT = `
   SELECT t.id, t.resident_id, t.house_id, t.problem_type, t.place, t.description, t.detail_code,
          t.rule_id, t.status, t.assigned_organization_id, t.deadline_at, t.created_at, t.updated_at,
-         o.name AS assigned_organization_name
+         o.name AS assigned_organization_name, h.timezone AS house_timezone
     FROM tickets t
-    LEFT JOIN organizations o ON o.id = t.assigned_organization_id`;
+    LEFT JOIN organizations o ON o.id = t.assigned_organization_id
+    LEFT JOIN houses h ON h.id = t.house_id`;
 
 /** Какая организация дома отвечает по категории правила; null — назначить некого. */
 function responsibleOrganization(
@@ -142,12 +143,40 @@ export async function createTicket(rules: Rules, log: FastifyBaseLogger, input: 
   });
 }
 
+/**
+ * Житель отменяет свою заявку. Только «принятую» (решение 26.09.2026): взятую в
+ * работу отменяет УК. Заявка остаётся в БД со статусом cancelled; событие
+ * status_changed пишет триггер (0007). Сразу пишем и notified: отмену житель
+ * сделал сам — присылать ему уведомление «отменена» незачем.
+ * Чужая или несуществующая заявка — один ответ 404.
+ */
+export async function cancelTicket(residentId: number, ticketId: number): Promise<TicketRow> {
+  await withTransaction(async (client) => {
+    const current = await client.query<{ status: string }>(
+      'SELECT status FROM tickets WHERE id = $1 AND resident_id = $2 FOR UPDATE',
+      [ticketId, residentId],
+    );
+    const ticket = current.rows[0];
+    if (!ticket) throw notFound(`Заявка ${ticketId} не найдена`);
+    if (ticket.status !== 'new') throw notCancellable();
+
+    await client.query("UPDATE tickets SET status = 'cancelled' WHERE id = $1", [ticketId]);
+    await client.query(
+      `INSERT INTO ticket_events (ticket_id, event_type, new_status) VALUES ($1, 'notified', 'cancelled')`,
+      [ticketId],
+    );
+  });
+
+  const { rows } = await pool.query<TicketRow>(`${TICKET_SELECT} WHERE t.id = $1`, [ticketId]);
+  return rows[0]!;
+}
+
 /** Заявки жителя, новые сверху; activeOnly — только незакрытые. Не больше 50. */
 export async function residentTickets(residentId: number, activeOnly: boolean): Promise<TicketRow[]> {
   const { rows } = await pool.query<TicketRow>(
     `${TICKET_SELECT}
       WHERE t.resident_id = $1
-        ${activeOnly ? "AND t.status <> 'resolved'" : ''}
+        ${activeOnly ? "AND t.status IN ('new', 'in_progress')" : ''}
       ORDER BY t.created_at DESC, t.id DESC
       LIMIT 50`,
     [residentId],
