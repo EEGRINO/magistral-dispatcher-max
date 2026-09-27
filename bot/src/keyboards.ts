@@ -102,6 +102,15 @@ export function menuKeyboard(botUsername: string | null): MaxAttachment[] {
   return keyboard(menuRows(botUsername));
 }
 
+/**
+ * Кнопки уведомления о смене статуса (решение 27.09.2026): nt:open:<id> —
+ * подробности заявки, nt:ok:<id> — закрыть. Оба убирают уведомление из чата и
+ * присылают ответ вниз: уведомления не должны уталкивать меню вверх.
+ */
+export function notificationKeyboard(ticketId: number): MaxAttachment[] {
+  return keyboard([callback('📋 Подробнее', `nt:open:${ticketId}`), callback('✓ Понятно', `nt:ok:${ticketId}`)]);
+}
+
 /** Отмена заявки: tc:ask:<id> → подтверждение → tc:yes:<id> / tc:no:<id>. */
 export const cancelAction = (step: 'ask' | 'yes' | 'no', ticketId: number): string => `tc:${step}:${ticketId}`;
 

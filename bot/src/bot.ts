@@ -54,6 +54,7 @@ import {
   houseChatKeyboard,
   leakSourceKeyboard,
   menuKeyboard,
+  notificationKeyboard,
   ownerZoneKeyboard,
   placeKeyboard,
   requestContactKeyboard,
@@ -1331,6 +1332,39 @@ async function handleText(target: SendTarget, userId: number | undefined, text: 
   await handleAddress(target, userId, resident, text);
 }
 
+/**
+ * «Понятно» / «Подробнее» под уведомлением о смене статуса. Уведомление
+ * удаляется, прежнее меню тоже, а меню или карточка заявки приходят новым
+ * сообщением внизу чата: сколько бы уведомлений ни пришло, кнопки — под рукой
+ * (решение 27.09.2026). Не удалось удалить — не беда, ответ всё равно придёт.
+ */
+async function closeNotification(target: SendTarget, userId: number | undefined, ticketId: number | null): Promise<void> {
+  const scope = callbackScope.getStore();
+  if (scope && !scope.answered) {
+    // Отвечаем на нажатие сразу и без замены: заменять нечего — уведомление удаляем.
+    scope.answered = true;
+    const notification = ticketId === null ? 'Уведомление закрыто' : 'Открываю заявку';
+    await api
+      .answerCallback(scope.callbackId, { notification }, shutdown.signal)
+      .catch((error: unknown) => {
+        if (isAbort(error)) throw error;
+        log.warn('ответ на нажатие не отправлен', { error: errorText(error) });
+      });
+  }
+  if (scope?.pressedMid) {
+    await api.deleteMessage(scope.pressedMid, shutdown.signal).catch((error: unknown) => {
+      if (isAbort(error)) throw error;
+      log.debug('уведомление не удалено', { error: errorText(error) });
+    });
+  }
+  await dropLiveMessage(target);
+  if (ticketId !== null && Number.isSafeInteger(ticketId) && ticketId > 0) {
+    await showTicket(target, userId, ticketId);
+  } else {
+    await showMenu(target, userId);
+  }
+}
+
 /** Нажатие inline-кнопки. Сначала отвечаем на нажатие, потом делаем дело. */
 async function handleCallback(target: SendTarget, update: MaxUpdate): Promise<void> {
   const callback = update.callback;
@@ -1402,6 +1436,12 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
   if (payload.startsWith('tc:')) {
     await answer('Принято');
     await handleCancelButton(target, userId, payload);
+    return;
+  }
+
+  // Кнопки уведомления о смене статуса: nt:open:<id> / nt:ok:<id>.
+  if (prefix === 'nt') {
+    await closeNotification(target, userId, type === 'open' ? Number(payload.split(':')[2]) : null);
     return;
   }
 
@@ -1630,8 +1670,11 @@ async function notifyLoop(): Promise<void> {
       for (const n of pending) {
         if (!running) break;
         try {
-          // Уведомление остаётся в чате — без кнопок, чтобы следующее нажатие его не заменило.
-          await send({ chatId: n.max_chat_id }, messages.statusChanged(n), [], { persistent: true });
+          // Уведомление не «живое»: нажатие в меню его не заменит. Свои кнопки
+          // «Подробнее» / «Понятно» закрывают его и присылают ответ вниз чата.
+          await send({ chatId: n.max_chat_id }, messages.statusChanged(n), notificationKeyboard(n.ticket_id), {
+            persistent: true,
+          });
           log.info('уведомление о статусе отправлено', { ticket_id: n.ticket_id, status: n.new_status });
         } catch (error) {
           if (isAbort(error)) throw error;
