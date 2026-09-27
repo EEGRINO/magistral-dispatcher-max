@@ -266,9 +266,9 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">95c28e9</td><td>feat(bot): рабочий /start и эхо через MAX Bot API</td><td class="hash">15:54</td></tr>
-  <tr><td class="hash">d9df482</td><td>fix(bot): доверять Russian Trusted CA, иначе fetch к MAX падает</td><td class="hash">16:31</td></tr>
-  <tr><td class="hash">3112b7b</td><td>docs: гайд по запуску и пояснительная записка</td><td class="hash">16:40</td></tr>
+  <tr><td class="hash">549fc87</td><td>feat(bot): рабочий /start и эхо через MAX Bot API</td><td class="hash">15:54</td></tr>
+  <tr><td class="hash">b9d22fe</td><td>fix(bot): доверять Russian Trusted CA, иначе fetch к MAX падает</td><td class="hash">16:31</td></tr>
+  <tr><td class="hash">43cb4ff</td><td>docs: гайд по запуску и пояснительная записка</td><td class="hash">16:40</td></tr>
 </table>
 
 <div class="ok">
@@ -349,7 +349,7 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">1202912</td><td>feat: КТ‑1 — сквозной провод MAX → бот → api → БД</td><td class="hash">20:27</td></tr>
+  <tr><td class="hash">1b55fa8</td><td>feat: КТ‑1 — сквозной провод MAX → бот → api → БД</td><td class="hash">20:27</td></tr>
 </table>
 
 <div class="ok">
@@ -378,11 +378,11 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">b7deef4</td><td>chore(scripts): скрипты разворачивания на чистом VPS</td><td class="hash">19:56</td></tr>
-  <tr><td class="hash">51c022d</td><td>feat(miniapp): каркас React + MAX UI + MAX Bridge, макет заявок на моках</td><td class="hash">19:56</td></tr>
-  <tr><td class="hash">e76cc6e</td><td>fix: обновить старое имя репозитория EEGRINO/-MAX- на magistral-dispatcher-max</td><td class="hash">20:14</td></tr>
-  <tr><td class="hash">c61777f</td><td>docs: раздел про деплой на VPS в README и docs/RUN.md</td><td class="hash">20:38</td></tr>
-  <tr><td class="hash">5be7a65</td><td>feat(compose,scripts): сервис miniapp и HTTPS-домен для него через Caddy</td><td class="hash">20:55</td></tr>
+  <tr><td class="hash">251d767</td><td>chore(scripts): скрипты разворачивания на чистом VPS</td><td class="hash">19:56</td></tr>
+  <tr><td class="hash">10cfe41</td><td>feat(miniapp): каркас React + MAX UI + MAX Bridge, макет заявок на моках</td><td class="hash">19:56</td></tr>
+  <tr><td class="hash">49bb4f9</td><td>fix: обновить старое имя репозитория EEGRINO/-MAX- на magistral-dispatcher-max</td><td class="hash">20:14</td></tr>
+  <tr><td class="hash">5d57811</td><td>docs: раздел про деплой на VPS в README и docs/RUN.md</td><td class="hash">20:38</td></tr>
+  <tr><td class="hash">0b51adb</td><td>feat(compose,scripts): сервис miniapp и HTTPS-домен для него через Caddy</td><td class="hash">20:55</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -452,7 +452,7 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">6881fa1</td><td>fix(deploy): системный nginx+certbot вместо Caddy, порты api/db на loopback</td><td class="hash">23:07</td></tr>
+  <tr><td class="hash">7852cf3</td><td>fix(deploy): системный nginx+certbot вместо Caddy, порты api/db на loopback</td><td class="hash">23:07</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -529,32 +529,32 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">46a3f97</td><td>docs(run): разбор ENOTFOUND db из-за занятого порта 5432, заголовки прокси в шаблонах nginx</td><td class="hash">10:54</td></tr>
-  <tr><td class="hash">a86b419</td><td>docs(max-notes): клавиатура, request_contact, диплинки, open_app и initData по доке 24.09.2026</td><td class="hash">12:05</td></tr>
-  <tr><td class="hash">d5e6023</td><td>docs(note): показания счётчиков с фото — отложено до КТ-2/КТ-3</td><td class="hash">12:05</td></tr>
-  <tr><td class="hash">8c3855a</td><td>docs: журнал решений — модель мини-аппа приведена к api, вход по контакту MAX</td><td class="hash">12:15</td></tr>
-  <tr><td class="hash">a97644a</td><td>test(bot): временная /testcontact — проверка request_contact в веб и мобильном MAX</td><td class="hash">12:24</td></tr>
-  <tr><td class="hash">31c06c5</td><td>feat(db): миграция 0002 — вход жителя по телефону, чат дома, описание заявки</td><td class="hash">12:20</td></tr>
-  <tr><td class="hash">ea6d94f</td><td>feat(bot,api): вход жителя по контакту MAX вместо find-or-create</td><td class="hash">12:36</td></tr>
-  <tr><td class="hash">c74de8e</td><td>docs(max-notes): подпись контакта MAX подтверждена — HMAC-SHA256(токен, vcf_info), hex</td><td class="hash">12:47</td></tr>
-  <tr><td class="hash">73b951c</td><td>fix(api): /residents/* отвечает 404 на запросы через прокси</td><td class="hash">12:55</td></tr>
-  <tr><td class="hash">c6d177f</td><td>docs(run): шаблоны nginx — наружу только перечисленные пути api, остальное 404</td><td class="hash">12:58</td></tr>
-  <tr><td class="hash">1b25cd2</td><td>feat(bot,api): меню и «Чат дома» — дом по данным УК, QR-коду или адресу</td><td class="hash">13:16</td></tr>
-  <tr><td class="hash">937b5b2</td><td>chore: временно — мини-апп ссылкой из меню и экран проверки запуска</td><td class="hash">19:18</td></tr>
-  <tr><td class="hash">c1cdc1c</td><td>docs(max-notes): open_app без привязанного мини-аппа — меню уходит, кнопка не открывает</td><td class="hash">19:29</td></tr>
-  <tr><td class="hash">e61973b</td><td>fix(miniapp): вместо белого экрана — причина сбоя; сборка под старые движки</td><td class="hash">19:38</td></tr>
-  <tr><td class="hash">372677c</td><td>docs(max-notes): кнопка link открывает внешний браузер; вопрос про белые списки</td><td class="hash">19:40</td></tr>
-  <tr><td class="hash">06d0c93</td><td>feat(api,db): жильцов и дома ведёт УК — квартира, договор, архив, импорт CSV</td><td class="hash">20:19</td></tr>
-  <tr><td class="hash">08fbee1</td><td>docs: как устроено хранение данных; пошаговая инструкция УК по домам и жителям</td><td class="hash">20:33</td></tr>
-  <tr><td class="hash">230f27a</td><td>feat(bot,api): экстренная ветка — газ, искрящая проводка, прорыв воды</td><td class="hash">20:43</td></tr>
-  <tr><td class="hash">cd2ffe5</td><td>feat(bot): обычная заявка в диалоге и зона собственника</td><td class="hash">20:54</td></tr>
-  <tr><td class="hash">f8ece27</td><td>docs: правила маршрутизации и справочные документы Павла</td><td class="hash">21:22</td></tr>
-  <tr><td class="hash">4c1712d</td><td>feat(bot,api,db): модель Павла — 10 типов, уточнение опасности, АДС дома</td><td class="hash">21:22</td></tr>
-  <tr><td class="hash">c30296b</td><td>chore: Pavel_docs/ в .gitignore — исходники для сверки, в проект перенесено нужное</td><td class="hash">21:25</td></tr>
-  <tr><td class="hash">2e877bb</td><td>feat(bot,api): «Мои заявки» и «статус N» — житель видит свои заявки</td><td class="hash">21:28</td></tr>
-  <tr><td class="hash">2b3fce7</td><td>chore(config): черновик detail и deadline_hours в rules.yaml — Павлу на сверку</td><td class="hash">21:43</td></tr>
-  <tr><td class="hash">507b559</td><td>feat(api,bot,db): маршрутизация заявок по config/rules.yaml</td><td class="hash">21:43</td></tr>
-  <tr><td class="hash">8edf0c3</td><td>feat(api,bot,db): жителю — ответственный; срок только сверенный; без routing_rules</td><td class="hash">21:53</td></tr>
+  <tr><td class="hash">b444245</td><td>docs(run): разбор ENOTFOUND db из-за занятого порта 5432, заголовки прокси в шаблонах nginx</td><td class="hash">10:54</td></tr>
+  <tr><td class="hash">89899ee</td><td>docs(max-notes): клавиатура, request_contact, диплинки, open_app и initData по доке 24.09.2026</td><td class="hash">12:05</td></tr>
+  <tr><td class="hash">e883c65</td><td>docs(note): показания счётчиков с фото — отложено до КТ-2/КТ-3</td><td class="hash">12:05</td></tr>
+  <tr><td class="hash">c763e43</td><td>docs: журнал решений — модель мини-аппа приведена к api, вход по контакту MAX</td><td class="hash">12:15</td></tr>
+  <tr><td class="hash">6f5fbde</td><td>test(bot): временная /testcontact — проверка request_contact в веб и мобильном MAX</td><td class="hash">12:24</td></tr>
+  <tr><td class="hash">149427d</td><td>feat(db): миграция 0002 — вход жителя по телефону, чат дома, описание заявки</td><td class="hash">12:20</td></tr>
+  <tr><td class="hash">2279613</td><td>feat(bot,api): вход жителя по контакту MAX вместо find-or-create</td><td class="hash">12:36</td></tr>
+  <tr><td class="hash">5543609</td><td>docs(max-notes): подпись контакта MAX подтверждена — HMAC-SHA256(токен, vcf_info), hex</td><td class="hash">12:47</td></tr>
+  <tr><td class="hash">5d897f1</td><td>fix(api): /residents/* отвечает 404 на запросы через прокси</td><td class="hash">12:55</td></tr>
+  <tr><td class="hash">8003d0d</td><td>docs(run): шаблоны nginx — наружу только перечисленные пути api, остальное 404</td><td class="hash">12:58</td></tr>
+  <tr><td class="hash">e0e5720</td><td>feat(bot,api): меню и «Чат дома» — дом по данным УК, QR-коду или адресу</td><td class="hash">13:16</td></tr>
+  <tr><td class="hash">52f550f</td><td>chore: временно — мини-апп ссылкой из меню и экран проверки запуска</td><td class="hash">19:18</td></tr>
+  <tr><td class="hash">eb202fb</td><td>docs(max-notes): open_app без привязанного мини-аппа — меню уходит, кнопка не открывает</td><td class="hash">19:29</td></tr>
+  <tr><td class="hash">c9e4bb0</td><td>fix(miniapp): вместо белого экрана — причина сбоя; сборка под старые движки</td><td class="hash">19:38</td></tr>
+  <tr><td class="hash">6a6c70c</td><td>docs(max-notes): кнопка link открывает внешний браузер; вопрос про белые списки</td><td class="hash">19:40</td></tr>
+  <tr><td class="hash">b048919</td><td>feat(api,db): жильцов и дома ведёт УК — квартира, договор, архив, импорт CSV</td><td class="hash">20:19</td></tr>
+  <tr><td class="hash">40934cc</td><td>docs: как устроено хранение данных; пошаговая инструкция УК по домам и жителям</td><td class="hash">20:33</td></tr>
+  <tr><td class="hash">6e96bbe</td><td>feat(bot,api): экстренная ветка — газ, искрящая проводка, прорыв воды</td><td class="hash">20:43</td></tr>
+  <tr><td class="hash">0d3f008</td><td>feat(bot): обычная заявка в диалоге и зона собственника</td><td class="hash">20:54</td></tr>
+  <tr><td class="hash">a329819</td><td>docs: правила маршрутизации и справочные документы Павла</td><td class="hash">21:22</td></tr>
+  <tr><td class="hash">7d82941</td><td>feat(bot,api,db): модель Павла — 10 типов, уточнение опасности, АДС дома</td><td class="hash">21:22</td></tr>
+  <tr><td class="hash">f48a2ce</td><td>chore: Pavel_docs/ в .gitignore — исходники для сверки, в проект перенесено нужное</td><td class="hash">21:25</td></tr>
+  <tr><td class="hash">0f5338a</td><td>feat(bot,api): «Мои заявки» и «статус N» — житель видит свои заявки</td><td class="hash">21:28</td></tr>
+  <tr><td class="hash">4ea5e15</td><td>chore(config): черновик detail и deadline_hours в rules.yaml — Павлу на сверку</td><td class="hash">21:43</td></tr>
+  <tr><td class="hash">79b57fc</td><td>feat(api,bot,db): маршрутизация заявок по config/rules.yaml</td><td class="hash">21:43</td></tr>
+  <tr><td class="hash">f47b9ce</td><td>feat(api,bot,db): жителю — ответственный; срок только сверенный; без routing_rules</td><td class="hash">21:53</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -578,7 +578,7 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">afa763c</td><td>feat(miniapp): интерфейс по сценарию бота — заявки, сообщить о проблеме, чат дома</td><td class="hash">22:31</td></tr>
+  <tr><td class="hash">d30d00e</td><td>feat(miniapp): интерфейс по сценарию бота — заявки, сообщить о проблеме, чат дома</td><td class="hash">22:31</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -658,19 +658,19 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">9606881</td><td>feat(api,bot): петля «смена статуса → уведомление жителю»</td><td class="hash">15:35</td></tr>
-  <tr><td class="hash">37ffc2e</td><td>feat(db,api): правка данных в pgAdmin работает как через api</td><td class="hash">16:55</td></tr>
-  <tr><td class="hash">2e41d8e</td><td>feat(api,miniapp): мини-приложение на настоящих данных — вход по initData MAX</td><td class="hash">20:27</td></tr>
-  <tr><td class="hash">9900125</td><td>feat(bot): мини-апп первым в меню, заявка в чате — запасной путь; без кнопки «Мини-апп (тест)»</td><td class="hash">21:03</td></tr>
-  <tr><td class="hash">d7ce55d</td><td>feat: отмена заявки жителем и время подачи «дд.мм.гггг, чч:мм»</td><td class="hash">21:08</td></tr>
-  <tr><td class="hash">9a2c1c4</td><td>feat(bot): одно «живое» сообщение вместо ленты и «Назад» на каждом шаге</td><td class="hash">21:14</td></tr>
-  <tr><td class="hash">d4c84df</td><td>feat(miniapp): «« Назад» на каждом шаге формы заявки</td><td class="hash">21:15</td></tr>
-  <tr><td class="hash">3b7d31e</td><td>fix(bot,miniapp): на первом шаге заявки только «Отмена», без «Назад»</td><td class="hash">21:30</td></tr>
-  <tr><td class="hash">ec0630e</td><td>feat(miniapp): «Отмена» на главном экране закрывает мини-приложение</td><td class="hash">21:41</td></tr>
-  <tr><td class="hash">e34d82d</td><td>fix(bot,miniapp): двойное нажатие «Отправить» — одна заявка (N04)</td><td class="hash">21:53</td></tr>
-  <tr><td class="hash">8aac1d2</td><td>fix(bot,miniapp): фото и стикеры, длинное описание, чужой дом в ссылке, нет сети</td><td class="hash">22:22</td></tr>
-  <tr><td class="hash">d6f8c0e</td><td>feat(bot): брошенная заявка — продолжить или начать заново (кейс 7)</td><td class="hash">22:30</td></tr>
-  <tr><td class="hash">1fb4a6b</td><td>feat: несколько квартир у жителя и выбор дома (кейс 10)</td><td class="hash">22:44</td></tr>
+  <tr><td class="hash">86bb6f5</td><td>feat(api,bot): петля «смена статуса → уведомление жителю»</td><td class="hash">15:35</td></tr>
+  <tr><td class="hash">84f2aaa</td><td>feat(db,api): правка данных в pgAdmin работает как через api</td><td class="hash">16:55</td></tr>
+  <tr><td class="hash">9555e5f</td><td>feat(api,miniapp): мини-приложение на настоящих данных — вход по initData MAX</td><td class="hash">20:27</td></tr>
+  <tr><td class="hash">4283681</td><td>feat(bot): мини-апп первым в меню, заявка в чате — запасной путь; без кнопки «Мини-апп (тест)»</td><td class="hash">21:03</td></tr>
+  <tr><td class="hash">28be0ad</td><td>feat: отмена заявки жителем и время подачи «дд.мм.гггг, чч:мм»</td><td class="hash">21:08</td></tr>
+  <tr><td class="hash">6cc2712</td><td>feat(bot): одно «живое» сообщение вместо ленты и «Назад» на каждом шаге</td><td class="hash">21:14</td></tr>
+  <tr><td class="hash">47b6e3d</td><td>feat(miniapp): «« Назад» на каждом шаге формы заявки</td><td class="hash">21:15</td></tr>
+  <tr><td class="hash">6cefc48</td><td>fix(bot,miniapp): на первом шаге заявки только «Отмена», без «Назад»</td><td class="hash">21:30</td></tr>
+  <tr><td class="hash">3f2bdf4</td><td>feat(miniapp): «Отмена» на главном экране закрывает мини-приложение</td><td class="hash">21:41</td></tr>
+  <tr><td class="hash">cd48afb</td><td>fix(bot,miniapp): двойное нажатие «Отправить» — одна заявка (N04)</td><td class="hash">21:53</td></tr>
+  <tr><td class="hash">48643c5</td><td>fix(bot,miniapp): фото и стикеры, длинное описание, чужой дом в ссылке, нет сети</td><td class="hash">22:22</td></tr>
+  <tr><td class="hash">a003c0b</td><td>feat(bot): брошенная заявка — продолжить или начать заново (кейс 7)</td><td class="hash">22:30</td></tr>
+  <tr><td class="hash">ef77dd9</td><td>feat: несколько квартир у жителя и выбор дома (кейс 10)</td><td class="hash">22:44</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -758,25 +758,25 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">67c1783</td><td>feat: услуги и замена счётчиков, время смены статуса, плашка экстренных</td><td class="hash">12:26</td></tr>
-  <tr><td class="hash">63247d9</td><td>feat(scripts): интерактивный установщик на VPS и новая главная страница</td><td class="hash">12:30</td></tr>
-  <tr><td class="hash">f9c70e3</td><td>feat(bot): кнопки «Подробнее» и «Понятно» под уведомлением о статусе</td><td class="hash">12:35</td></tr>
-  <tr><td class="hash">0097bc3</td><td>fix(scripts): проверка входа в существующую базу перед запуском</td><td class="hash">15:38</td></tr>
-  <tr><td class="hash">02fe4a5</td><td>fix(scripts): сборка мини-аппа без терминала, уборка старых контейнеров</td><td class="hash">15:45</td></tr>
-  <tr><td class="hash">e67e457</td><td>fix(scripts): не глушить вывод сборки мини-аппа</td><td class="hash">15:49</td></tr>
-  <tr><td class="hash">20c293a</td><td>fix(scripts): запускать nginx, если он не запущен</td><td class="hash">15:53</td></tr>
-  <tr><td class="hash">957b7bc</td><td>feat(scripts): работа за чужим прокси на 80/443 (Nginx Proxy Manager)</td><td class="hash">16:00</td></tr>
-  <tr><td class="hash">d23f48f</td><td>fix(scripts): пояснять, что адрес без домена — внутренний</td><td class="hash">16:08</td></tr>
-  <tr><td class="hash">68a3636</td><td>docs(readme): прописать deploy-ключ в ~/.ssh/config перед клоном</td><td class="hash">16:39</td></tr>
-  <tr><td class="hash">c80659a</td><td>fix(scripts): ждать apt и доделывать прерванную настройку dpkg</td><td class="hash">17:37</td></tr>
-  <tr><td class="hash">220c294</td><td>fix(scripts): проверка доменов и понятная ошибка certbot</td><td class="hash">18:09</td></tr>
-  <tr><td class="hash">66da33e</td><td>fix(bot): писать в лог причину сетевой ошибки, а не только «fetch failed»</td><td class="hash">18:35</td></tr>
-  <tr><td class="hash">3129504</td><td>docs,fix(scripts): MAX Bot API недоступен с зарубежного VPS — проверка в установщике</td><td class="hash">18:38</td></tr>
-  <tr><td class="hash">b88a9eb</td><td>fix(scripts): Docker из репозитория Ubuntu, если download.docker.com закрыт</td><td class="hash">19:29</td></tr>
-  <tr><td class="hash">8377bdc</td><td>fix(scripts): зеркало Docker Hub, если registry-1.docker.io закрыт</td><td class="hash">19:34</td></tr>
-  <tr><td class="hash">beea7db</td><td>feat(db,api): ФИО жителя и русские представления для pgAdmin</td><td class="hash">23:27</td></tr>
-  <tr><td class="hash">08f2db5</td><td>docs: импорт жителей из Excel — инструкция и шаблоны; fix: 0010 на свежей базе</td><td class="hash">23:32</td></tr>
-  <tr><td class="hash">f9afe37</td><td>feat(db): русские представления — зеркало таблиц один в один (0011)</td><td class="hash">23:51</td></tr>
+  <tr><td class="hash">f0b2ae7</td><td>feat: услуги и замена счётчиков, время смены статуса, плашка экстренных</td><td class="hash">12:26</td></tr>
+  <tr><td class="hash">83786b7</td><td>feat(scripts): интерактивный установщик на VPS и новая главная страница</td><td class="hash">12:30</td></tr>
+  <tr><td class="hash">7794df9</td><td>feat(bot): кнопки «Подробнее» и «Понятно» под уведомлением о статусе</td><td class="hash">12:35</td></tr>
+  <tr><td class="hash">7093eca</td><td>fix(scripts): проверка входа в существующую базу перед запуском</td><td class="hash">15:38</td></tr>
+  <tr><td class="hash">bd722bb</td><td>fix(scripts): сборка мини-аппа без терминала, уборка старых контейнеров</td><td class="hash">15:45</td></tr>
+  <tr><td class="hash">5fe864a</td><td>fix(scripts): не глушить вывод сборки мини-аппа</td><td class="hash">15:49</td></tr>
+  <tr><td class="hash">35bcd50</td><td>fix(scripts): запускать nginx, если он не запущен</td><td class="hash">15:53</td></tr>
+  <tr><td class="hash">6e641fe</td><td>feat(scripts): работа за чужим прокси на 80/443 (Nginx Proxy Manager)</td><td class="hash">16:00</td></tr>
+  <tr><td class="hash">1ddc2e7</td><td>fix(scripts): пояснять, что адрес без домена — внутренний</td><td class="hash">16:08</td></tr>
+  <tr><td class="hash">8e8a5f0</td><td>docs(readme): прописать deploy-ключ в ~/.ssh/config перед клоном</td><td class="hash">16:39</td></tr>
+  <tr><td class="hash">6a4bdc1</td><td>fix(scripts): ждать apt и доделывать прерванную настройку dpkg</td><td class="hash">17:37</td></tr>
+  <tr><td class="hash">88a6cff</td><td>fix(scripts): проверка доменов и понятная ошибка certbot</td><td class="hash">18:09</td></tr>
+  <tr><td class="hash">81eb6a3</td><td>fix(bot): писать в лог причину сетевой ошибки, а не только «fetch failed»</td><td class="hash">18:35</td></tr>
+  <tr><td class="hash">3fdbabf</td><td>docs,fix(scripts): MAX Bot API недоступен с зарубежного VPS — проверка в установщике</td><td class="hash">18:38</td></tr>
+  <tr><td class="hash">68b6e21</td><td>fix(scripts): Docker из репозитория Ubuntu, если download.docker.com закрыт</td><td class="hash">19:29</td></tr>
+  <tr><td class="hash">a34cb57</td><td>fix(scripts): зеркало Docker Hub, если registry-1.docker.io закрыт</td><td class="hash">19:34</td></tr>
+  <tr><td class="hash">e9b5954</td><td>feat(db,api): ФИО жителя и русские представления для pgAdmin</td><td class="hash">23:27</td></tr>
+  <tr><td class="hash">896afc6</td><td>docs: импорт жителей из Excel — инструкция и шаблоны; fix: 0010 на свежей базе</td><td class="hash">23:32</td></tr>
+  <tr><td class="hash">f28ca81</td><td>feat(db): русские представления — зеркало таблиц один в один (0011)</td><td class="hash">23:51</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -809,8 +809,8 @@
 
 <table>
   <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
-  <tr><td class="hash">d512863</td><td>fix(bot,miniapp): одна «112» вместо двух, если у дома нет телефона АДС</td><td class="hash">00:04</td></tr>
-  <tr><td class="hash">4f072d9</td><td>fix(docs): лишние поля запроса отбрасываются, а не дают validation_error</td><td class="hash">00:12</td></tr>
+  <tr><td class="hash">84cf901</td><td>fix(bot,miniapp): одна «112» вместо двух, если у дома нет телефона АДС</td><td class="hash">00:04</td></tr>
+  <tr><td class="hash">8f36c29</td><td>fix(docs): лишние поля запроса отбрасываются, а не дают validation_error</td><td class="hash">00:12</td></tr>
 </table>
 
 <!-- ────────────────────────────────────────────────────────────────── -->
@@ -855,7 +855,7 @@
 
 <p>
   На Д‑10 было высказано предположение, что токен бота попал в первый коммит и был запушен.
-  <strong>Предположение оказалось неверным.</strong> В коммите <code>1a55d02</code> строка выглядела как
+  <strong>Предположение оказалось неверным.</strong> В коммите <code>907bbed</code> строка выглядела как
   <code>BOT_TOKEN=</code> — с пустым значением. Реальный токен существовал только в рабочей копии файла
   на диске и был заменён плейсхолдерами раньше, чем попал в индекс.
 </p>
