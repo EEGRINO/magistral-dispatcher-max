@@ -863,6 +863,11 @@ if [ "$WANT_NGINX" -eq 1 ] && [ "$WANT_DOMAIN" -eq 1 ]; then
 fi
 if [ "$WANT_NGINX" -eq 1 ]; then
   printf '  мини-приложение %s\n' "$APP_URL"
+  # hostname -I знает только адрес внутри сети сервера — снаружи он может быть недоступен.
+  if [ "$WANT_DOMAIN" -eq 0 ] && [[ "${server_ip:-}" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then
+    printf '%s  %s — адрес во внутренней сети сервера. Снаружи — по публичному IP (тому, что для SSH)%s\n' "$DIM" "$server_ip" "$N"
+    printf '%s  или через туннель: ssh -L %s:127.0.0.1:%s <сервер>, затем http://localhost:%s%s\n' "$DIM" "$NGINX_PORT" "$NGINX_PORT" "$NGINX_PORT" "$N"
+  fi
 fi
 
 echo
