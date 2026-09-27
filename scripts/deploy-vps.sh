@@ -230,6 +230,28 @@ apt_get() {
   $SUDO apt-get "$@"
 }
 
+# ask_domain ПЕРЕМЕННАЯ "Вопрос" по_умолчанию — домен должен быть вашим: не
+# поддомен основного — переспрашиваем (вписать сюда чужой адрес, например
+# platform-api2.max.ru, легко по ошибке, а сертификат на него не выпустят).
+ask_domain() {
+  local __var="$1" __q="$2" __def="$3" __d __sure
+  while :; do
+    ask __d "$__q" "$__def"
+    __d="${__d,,}"
+    if ! [[ "$__d" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+      warn "«${__d}» не похоже на домен."; [ -n "$TTY_IN" ] || die "Неверный домен: ${__d}"; continue
+    fi
+    if [ "$__d" != "$BASE_DOMAIN" ] && [[ "$__d" != *".${BASE_DOMAIN}" ]]; then
+      warn "${__d} — не поддомен ${BASE_DOMAIN}. Сертификат выпустят, только если домен ваш и смотрит на этот сервер."
+      __sure=0
+      ask_yn __sure "Это точно ваш домен?" n
+      if [ "$__sure" -ne 1 ]; then [ -n "$TTY_IN" ] || die "Домен ${__d} не подтверждён."; continue; fi
+    fi
+    printf -v "$__var" '%s' "$__d"
+    return
+  done
+}
+
 token_ready() {
   case "$1" in
     ''|paste-your-*|your-*|change-me*) return 1 ;;
@@ -432,8 +454,8 @@ if [ "$WANT_NGINX" -eq 1 ] && [ "$WANT_DOMAIN" -eq 1 ]; then
     warn "Домен не указан — настрою nginx без домена."
     WANT_DOMAIN=0
   else
-    ask API_DOMAIN "Домен api"               "api.${BASE_DOMAIN}"
-    ask APP_DOMAIN "Домен мини-приложения"   "app.${BASE_DOMAIN}"
+    ask_domain API_DOMAIN "Домен api"             "api.${BASE_DOMAIN}"
+    ask_domain APP_DOMAIN "Домен мини-приложения" "app.${BASE_DOMAIN}"
     [ "$API_DOMAIN" != "$APP_DOMAIN" ] || die "Домены api и мини-приложения должны различаться."
     ask STATIC_DIR "Каталог статики мини-приложения" "/var/www/${APP_DOMAIN}"
     ask_yn WANT_TLS "Выпустить HTTPS-сертификаты Let's Encrypt (certbot)?" y
@@ -849,15 +871,25 @@ if [ "$WANT_NGINX" -eq 1 ]; then
     fi
     email_args=(--register-unsafely-without-email)
     if [ -n "$LE_EMAIL" ]; then email_args=(-m "$LE_EMAIL"); fi
-    # Не падаем, если certbot не смог (DNS ещё не обновился): сайт по http уже
-    # работает, сертификат можно выпустить позже той же командой.
-    if $SUDO certbot --nginx -n --agree-tos --redirect --keep-until-expiring \
+    # Домена нет в DNS — certbot заведомо не выпустит, не тратим попытку
+    # (у Let's Encrypt лимит неудачных попыток в час).
+    no_dns=''
+    for d in "$API_DOMAIN" "$APP_DOMAIN"; do
+      getent ahostsv4 "$d" >/dev/null 2>&1 || no_dns="${no_dns:+$no_dns, }$d"
+    done
+    # Не падаем, если certbot не смог: сайт по http уже работает, сертификат
+    # можно выпустить позже той же командой.
+    if [ -n "$no_dns" ]; then
+      warn "Нет DNS-записи для: ${no_dns} — сертификат не запрашиваю."
+      warn "Заведите A-запись на этот сервер и выполните: sudo certbot --nginx -d ${API_DOMAIN} -d ${APP_DOMAIN}"
+    elif $SUDO certbot --nginx -n --agree-tos --redirect --keep-until-expiring \
          "${email_args[@]}" -d "$API_DOMAIN" -d "$APP_DOMAIN"; then
       TLS_OK=1
       log "Сертификаты выпущены, http → https."
     else
-      warn "certbot не смог выпустить сертификат — чаще всего DNS домена ещё не указывает на сервер."
-      warn "Повторить позже: sudo certbot --nginx -d ${API_DOMAIN} -d ${APP_DOMAIN}"
+      warn "certbot не выпустил сертификат — причина в его сообщении выше. Частые: A-запись домена"
+      warn "смотрит не на этот сервер, закрыт порт 80, домен чужой (Let's Encrypt откажет по политике)."
+      warn "Повторить: sudo certbot --nginx -d ${API_DOMAIN} -d ${APP_DOMAIN}"
     fi
   fi
 fi
