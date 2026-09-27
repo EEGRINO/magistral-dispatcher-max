@@ -308,19 +308,20 @@ flowchart LR
 </details>
 
 <details>
-<summary><b>21.09 · Д-9 — каркас мини-приложения</b></summary>
+<summary><b>21.09 · Д-9 — КТ-1: сквозной провод MAX → бот → api → БД, каркас мини-приложения</b></summary>
 
+- Схема БД, миграции `node-pg-migrate`, сервис `migrate` в compose
+- api на Fastify + TypeBox, единый формат ошибок
+- Цепочка MAX → бот → api → БД подтверждена живым сообщением в MAX
 - Мини-приложение: React + MAX UI + MAX Bridge, макет заявок
 - Скрипт установки на чистый VPS
 
 </details>
 
 <details>
-<summary><b>20.09 · Д-10 — бот отвечает, сквозной провод MAX → бот → api → БД (КТ-1)</b></summary>
+<summary><b>20.09 · Д-10 — допуск: бот отвечает в MAX</b></summary>
 
 - Бот на long polling со своим тонким клиентом MAX на `fetch` — без SDK на мёртвом домене
-- Схема БД, миграции `node-pg-migrate`, сервис `migrate` в compose
-- api на Fastify + TypeBox, единый формат ошибок
 - Защита от секретов: pre-commit хук
 - Russian Trusted CA — иначе `fetch` к MAX падает
 

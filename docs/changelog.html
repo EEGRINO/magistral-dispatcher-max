@@ -358,6 +358,461 @@
   Живой <code>/start</code> в MAX вернул <code>Ваш ID: 1</code>; запись в <code>residents</code> подтверждена запросом psql.
 </div>
 
+<h3><span class="tag tag-add">добавлено</span> в тот же день — мини-приложение и развёртывание</h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Каркас мини-приложения: React + MAX UI + MAX Bridge, макет заявок</td>
+    <td>Второй канал для жителя — форма вместо диалога. Сначала на моках, чтобы интерфейс не ждал api</td>
+  </tr>
+  <tr>
+    <td class="what">Скрипты развёртывания на чистом VPS</td>
+    <td>Сервер поднимается одной командой, без ручной установки Docker и клонирования</td>
+  </tr>
+  <tr>
+    <td class="what">Репозиторий переименован: <code>-MAX-</code> → <code>magistral-dispatcher-max</code></td>
+    <td>Имя с дефисом в начале ломало команды вида <code>cd -MAX-</code>: шелл принимал его за флаг</td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">b7deef4</td><td>chore(scripts): скрипты разворачивания на чистом VPS</td><td class="hash">19:56</td></tr>
+  <tr><td class="hash">51c022d</td><td>feat(miniapp): каркас React + MAX UI + MAX Bridge, макет заявок на моках</td><td class="hash">19:56</td></tr>
+  <tr><td class="hash">e76cc6e</td><td>fix: обновить старое имя репозитория EEGRINO/-MAX- на magistral-dispatcher-max</td><td class="hash">20:14</td></tr>
+  <tr><td class="hash">c61777f</td><td>docs: раздел про деплой на VPS в README и docs/RUN.md</td><td class="hash">20:38</td></tr>
+  <tr><td class="hash">5be7a65</td><td>feat(compose,scripts): сервис miniapp и HTTPS-домен для него через Caddy</td><td class="hash">20:55</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑7 · Деплой: системный nginx вместо Caddy</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Сервер отдаёт api и мини-приложение по HTTPS через системный nginx; api и БД наружу не торчат.
+</p>
+
+<h3><span class="tag tag-chg">изменено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Системный nginx + certbot вместо Caddy в compose</td>
+    <td>На сервере уже стоял nginx, и Caddy дрался с ним за 80/443: кто стартовал раньше после перезагрузки, тот и держал порт. Один TLS-терминатор надёжнее двух</td>
+  </tr>
+  <tr>
+    <td class="what">Порты api и БД опубликованы только на <code>127.0.0.1</code></td>
+    <td>Наружу отдаёт только nginx. База и внутренние маршруты api снаружи недоступны в принципе</td>
+  </tr>
+  <tr>
+    <td class="what">Caddy контейнером в compose<br><span style="color:var(--muted);font-weight:400">принято на Д‑9</span></td>
+    <td>
+      <strong>Отменено на Д‑7.</strong> На сервере уже был системный nginx, два TLS-терминатора дрались за 80/443. Оставлен nginx + certbot.
+    </td>
+  </tr>
+  <tr>
+    <td class="what"><code>POST /residents/find-or-create</code><br><span style="color:var(--muted);font-weight:400">принято на Д‑9</span></td>
+    <td>
+      <strong>Отменено на Д‑6.</strong> Жителя заводит УК, бот только привязывает аккаунт — вход по подписанному контакту MAX.
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Таблица <code>routing_rules</code><br><span style="color:var(--muted);font-weight:400">принято на Д‑9</span></td>
+    <td>
+      <strong>Удалена на Д‑6 (<code>0006</code>).</strong> Так и осталась пустой: правила маршрутизации — в <code>config/rules.yaml</code>, правятся без пересборки.
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Кнопка «Мини-апп (тест)»<br><span style="color:var(--muted);font-weight:400">принято на Д‑6</span></td>
+    <td>
+      <strong>Убрана на Д‑4.</strong> Тестовая ссылка больше не нужна — одна кнопка «Отправить заявку ЖКХ».
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Черновик заявки живёт 15 минут<br><span style="color:var(--muted);font-weight:400">принято на Д‑6</span></td>
+    <td>
+      <strong>Изменено на Д‑4.</strong> Брошенную заявку можно продолжить: черновик живёт сутки, есть «Продолжить / Начать заново».
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Квартира — колонки в <code>residents</code><br><span style="color:var(--muted);font-weight:400">принято на Д‑6 (<code>0003</code>)</span></td>
+    <td>
+      <strong>Изменено на Д‑4 (<code>0009</code>).</strong> У жителя бывает несколько квартир в разных домах — они в таблице <code>resident_premises</code>.
+    </td>
+  </tr>
+  <tr>
+    <td class="what">Русские копии таблиц с выборочными столбцами<br><span style="color:var(--muted);font-weight:400">принято на Д‑3 (<code>0010</code>)</span></td>
+    <td>
+      <strong>Изменено на Д‑3 (<code>0011</code>).</strong> Копии стали один в один с таблицами — чтобы открывать рядом и сверять правку.
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">6881fa1</td><td>fix(deploy): системный nginx+certbot вместо Caddy, порты api/db на loopback</td><td class="hash">23:07</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑6 · Сценарий жителя и маршрутизация</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Житель входит по контакту, сообщает о проблеме в чате и получает номер заявки с ответственным; дома и жителей ведёт УК.
+</p>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Вход по подписанному контакту MAX (миграция <code>0002</code>)</td>
+    <td>MAX подписывает контакт — чужой номер не подставить. Жителя заранее заводит УК, бот только привязывает к нему аккаунт MAX</td>
+  </tr>
+  <tr>
+    <td class="what">Меню и «Чат дома»: дом по данным УК, QR-коду или адресу</td>
+    <td>В QR — случайный код дома, а не номер: чужие дома не перебрать. При расхождении QR и данных УК верим УК</td>
+  </tr>
+  <tr>
+    <td class="what">Экстренная ветка: газ, искрящая проводка, прорыв воды, человек в лифте</td>
+    <td>Инструкция «что делать прямо сейчас» приходит сразу, не дожидаясь api; заявка — экстренная</td>
+  </tr>
+  <tr>
+    <td class="what">Обычная заявка в диалоге и зона собственника</td>
+    <td>По ПП № 491, п. 5 всё после первого крана — имущество собственника. Бот объясняет это, но «Всё равно передать в УК» оставляет: тупик хуже лишней заявки</td>
+  </tr>
+  <tr>
+    <td class="what">Модель Павла: 10 типов, уточнение опасности, телефон АДС дома (<code>0004</code>)</td>
+    <td>Типы и места — те же коды, что в правилах маршрутизации</td>
+  </tr>
+  <tr>
+    <td class="what">Маршрутизация по <code>config/rules.yaml</code> (<code>0005</code>)</td>
+    <td>Тип + место + уточнение → ответственный и срок. Справочник правится без пересборки; жителю показывается только сверенный срок</td>
+  </tr>
+  <tr>
+    <td class="what">«Мои заявки» и «статус N»</td>
+    <td>Житель видит свои заявки в любой момент, не выходя из сценария</td>
+  </tr>
+  <tr>
+    <td class="what">Жильцов и дома ведёт УК: квартира, договор, архив, импорт CSV (<code>0003</code>)</td>
+    <td>Архив вместо удаления: на жителя ссылаются заявки, история по адресу не теряется</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-del">удалено</span></h3>
+
+<ul>
+  <li>Таблица <code>routing_rules</code> (миграция <code>0006</code>) — так и осталась пустой, правила живут в <code>config/rules.yaml</code>.</li>
+  <li>Эндпоинт <code>POST /residents/find-or-create</code> — заменён входом по контакту.</li>
+</ul>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Симптом</th><th>Причина и решение</th></tr>
+  <tr>
+    <td class="what">Через прокси снаружи был доступен <code>POST /residents/link-by-phone</code></td>
+    <td>Можно было привязать к себе чужую квартиру. Теперь <code>/residents/*</code> отвечает 404 на запросы через прокси, а шаблоны nginx пропускают наружу только перечисленные пути</td>
+  </tr>
+  <tr>
+    <td class="what">Мини-приложение показывало белый экран</td>
+    <td>Теперь — причина сбоя текстом; сборка под старые движки браузера в клиентах MAX</td>
+  </tr>
+  <tr>
+    <td class="what"><code>migrate</code> падал с <code>ENOTFOUND db</code></td>
+    <td>Порт 5432 на сервере держал системный Postgres, контейнер <code>db</code> оставался без сети. Разбор и лечение — в <code>docs/RUN.md</code></td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">46a3f97</td><td>docs(run): разбор ENOTFOUND db из-за занятого порта 5432, заголовки прокси в шаблонах nginx</td><td class="hash">10:54</td></tr>
+  <tr><td class="hash">a86b419</td><td>docs(max-notes): клавиатура, request_contact, диплинки, open_app и initData по доке 24.09.2026</td><td class="hash">12:05</td></tr>
+  <tr><td class="hash">d5e6023</td><td>docs(note): показания счётчиков с фото — отложено до КТ-2/КТ-3</td><td class="hash">12:05</td></tr>
+  <tr><td class="hash">8c3855a</td><td>docs: журнал решений — модель мини-аппа приведена к api, вход по контакту MAX</td><td class="hash">12:15</td></tr>
+  <tr><td class="hash">a97644a</td><td>test(bot): временная /testcontact — проверка request_contact в веб и мобильном MAX</td><td class="hash">12:24</td></tr>
+  <tr><td class="hash">31c06c5</td><td>feat(db): миграция 0002 — вход жителя по телефону, чат дома, описание заявки</td><td class="hash">12:20</td></tr>
+  <tr><td class="hash">ea6d94f</td><td>feat(bot,api): вход жителя по контакту MAX вместо find-or-create</td><td class="hash">12:36</td></tr>
+  <tr><td class="hash">c74de8e</td><td>docs(max-notes): подпись контакта MAX подтверждена — HMAC-SHA256(токен, vcf_info), hex</td><td class="hash">12:47</td></tr>
+  <tr><td class="hash">73b951c</td><td>fix(api): /residents/* отвечает 404 на запросы через прокси</td><td class="hash">12:55</td></tr>
+  <tr><td class="hash">c6d177f</td><td>docs(run): шаблоны nginx — наружу только перечисленные пути api, остальное 404</td><td class="hash">12:58</td></tr>
+  <tr><td class="hash">1b25cd2</td><td>feat(bot,api): меню и «Чат дома» — дом по данным УК, QR-коду или адресу</td><td class="hash">13:16</td></tr>
+  <tr><td class="hash">937b5b2</td><td>chore: временно — мини-апп ссылкой из меню и экран проверки запуска</td><td class="hash">19:18</td></tr>
+  <tr><td class="hash">c1cdc1c</td><td>docs(max-notes): open_app без привязанного мини-аппа — меню уходит, кнопка не открывает</td><td class="hash">19:29</td></tr>
+  <tr><td class="hash">e61973b</td><td>fix(miniapp): вместо белого экрана — причина сбоя; сборка под старые движки</td><td class="hash">19:38</td></tr>
+  <tr><td class="hash">372677c</td><td>docs(max-notes): кнопка link открывает внешний браузер; вопрос про белые списки</td><td class="hash">19:40</td></tr>
+  <tr><td class="hash">06d0c93</td><td>feat(api,db): жильцов и дома ведёт УК — квартира, договор, архив, импорт CSV</td><td class="hash">20:19</td></tr>
+  <tr><td class="hash">08fbee1</td><td>docs: как устроено хранение данных; пошаговая инструкция УК по домам и жителям</td><td class="hash">20:33</td></tr>
+  <tr><td class="hash">230f27a</td><td>feat(bot,api): экстренная ветка — газ, искрящая проводка, прорыв воды</td><td class="hash">20:43</td></tr>
+  <tr><td class="hash">cd2ffe5</td><td>feat(bot): обычная заявка в диалоге и зона собственника</td><td class="hash">20:54</td></tr>
+  <tr><td class="hash">f8ece27</td><td>docs: правила маршрутизации и справочные документы Павла</td><td class="hash">21:22</td></tr>
+  <tr><td class="hash">4c1712d</td><td>feat(bot,api,db): модель Павла — 10 типов, уточнение опасности, АДС дома</td><td class="hash">21:22</td></tr>
+  <tr><td class="hash">c30296b</td><td>chore: Pavel_docs/ в .gitignore — исходники для сверки, в проект перенесено нужное</td><td class="hash">21:25</td></tr>
+  <tr><td class="hash">2e877bb</td><td>feat(bot,api): «Мои заявки» и «статус N» — житель видит свои заявки</td><td class="hash">21:28</td></tr>
+  <tr><td class="hash">2b3fce7</td><td>chore(config): черновик detail и deadline_hours в rules.yaml — Павлу на сверку</td><td class="hash">21:43</td></tr>
+  <tr><td class="hash">507b559</td><td>feat(api,bot,db): маршрутизация заявок по config/rules.yaml</td><td class="hash">21:43</td></tr>
+  <tr><td class="hash">8edf0c3</td><td>feat(api,bot,db): жителю — ответственный; срок только сверенный; без routing_rules</td><td class="hash">21:53</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑5 · Интерфейс мини-приложения</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Экраны мини-приложения повторяют сценарий бота: мои заявки, сообщить о проблеме, чат дома.
+</p>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Экраны мини-приложения по сценарию бота</td>
+    <td>Житель видит в форме те же вопросы и слова, что в диалоге с ботом — один сценарий, два канала</td>
+  </tr>
+</table>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">afa763c</td><td>feat(miniapp): интерфейс по сценарию бота — заявки, сообщить о проблеме, чат дома</td><td class="hash">22:31</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑4 · Мини-приложение на живых данных, уведомления, чек-лист</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Петля «статус → уведомление» замкнута, мини-приложение работает на настоящих данных, пройден чек-лист тестирования.
+</p>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">Уведомление жителю о смене статуса</td>
+    <td>Событие <code>status_changed</code> пишет триггер БД (<code>0007</code>), бот забирает очередь каждые 5 секунд — поэтому уведомление уходит и при правке статуса прямо в pgAdmin</td>
+  </tr>
+  <tr>
+    <td class="what">Правка данных в pgAdmin работает как через api (<code>0007</code>)</td>
+    <td>Телефон приводится к <code>+7…</code>, смена номера и архив снимают привязку к MAX, адрес дома разбирается на улицу и номер</td>
+  </tr>
+  <tr>
+    <td class="what">Мини-приложение на настоящих данных: вход по подписи <code>initData</code> MAX</td>
+    <td>Житель определяется по подписи, id с клиента не принимается. Наружу из api открыты только <code>/app/*</code></td>
+  </tr>
+  <tr>
+    <td class="what">Отмена заявки жителем, время подачи «дд.мм.гггг, чч:мм» (<code>0008</code>)</td>
+    <td>Отменить можно только «принятую» — взятую в работу отменяет УК. Время — по поясу дома: MAX не сообщает боту пояс жителя</td>
+  </tr>
+  <tr>
+    <td class="what">Одно «живое» сообщение и «« Назад» на каждом шаге</td>
+    <td>Нажатие кнопки меняет сообщение на месте — лента не растёт. Номер заявки и инструкции при аварии бот не трогает</td>
+  </tr>
+  <tr>
+    <td class="what">Несколько квартир у жителя (<code>0009</code>), выбор дома</td>
+    <td>Заявка и «Чат дома» спрашивают дом, только если домов больше одного</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Кейс чек-листа</th><th>Что теперь</th></tr>
+  <tr>
+    <td class="what">Двойное нажатие «Отправить»</td>
+    <td>Одна заявка с одним номером; второе нажатие — уведомление «Заявка №N уже отправлена»</td>
+  </tr>
+  <tr>
+    <td class="what">Фото, стикер или голосовое вместо ответа</td>
+    <td>Бот повторяет текущий вопрос, сценарий продолжается</td>
+  </tr>
+  <tr>
+    <td class="what">Описание 4000 символов с эмодзи</td>
+    <td>Сохраняется целиком, эмодзи не разрезается; в сообщениях — начало с пометкой</td>
+  </tr>
+  <tr>
+    <td class="what">Несуществующий дом в ссылке</td>
+    <td>Текст с 112 на случай аварии и меню — не тупик</td>
+  </tr>
+  <tr>
+    <td class="what">Нет сети при смене статуса в мини-приложении</td>
+    <td>Тайм-аут 15 с и понятная ошибка; статус на экране меняется только после ответа сервера</td>
+  </tr>
+  <tr>
+    <td class="what">Брошенная на середине заявка</td>
+    <td>Черновик живёт сутки, «Сообщить о проблеме» предлагает «Продолжить / Начать заново»</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-del">удалено</span></h3>
+
+<ul>
+  <li>Кнопка «Мини-апп (тест)» — осталась одна «Отправить заявку ЖКХ».</li>
+</ul>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">9606881</td><td>feat(api,bot): петля «смена статуса → уведомление жителю»</td><td class="hash">15:35</td></tr>
+  <tr><td class="hash">37ffc2e</td><td>feat(db,api): правка данных в pgAdmin работает как через api</td><td class="hash">16:55</td></tr>
+  <tr><td class="hash">2e41d8e</td><td>feat(api,miniapp): мини-приложение на настоящих данных — вход по initData MAX</td><td class="hash">20:27</td></tr>
+  <tr><td class="hash">9900125</td><td>feat(bot): мини-апп первым в меню, заявка в чате — запасной путь; без кнопки «Мини-апп (тест)»</td><td class="hash">21:03</td></tr>
+  <tr><td class="hash">d7ce55d</td><td>feat: отмена заявки жителем и время подачи «дд.мм.гггг, чч:мм»</td><td class="hash">21:08</td></tr>
+  <tr><td class="hash">9a2c1c4</td><td>feat(bot): одно «живое» сообщение вместо ленты и «Назад» на каждом шаге</td><td class="hash">21:14</td></tr>
+  <tr><td class="hash">d4c84df</td><td>feat(miniapp): «« Назад» на каждом шаге формы заявки</td><td class="hash">21:15</td></tr>
+  <tr><td class="hash">3b7d31e</td><td>fix(bot,miniapp): на первом шаге заявки только «Отмена», без «Назад»</td><td class="hash">21:30</td></tr>
+  <tr><td class="hash">ec0630e</td><td>feat(miniapp): «Отмена» на главном экране закрывает мини-приложение</td><td class="hash">21:41</td></tr>
+  <tr><td class="hash">e34d82d</td><td>fix(bot,miniapp): двойное нажатие «Отправить» — одна заявка (N04)</td><td class="hash">21:53</td></tr>
+  <tr><td class="hash">8aac1d2</td><td>fix(bot,miniapp): фото и стикеры, длинное описание, чужой дом в ссылке, нет сети</td><td class="hash">22:22</td></tr>
+  <tr><td class="hash">d6f8c0e</td><td>feat(bot): брошенная заявка — продолжить или начать заново (кейс 7)</td><td class="hash">22:30</td></tr>
+  <tr><td class="hash">1fb4a6b</td><td>feat: несколько квартир у жителя и выбор дома (кейс 10)</td><td class="hash">22:44</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑3 · Услуги, установщик, база по-русски</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Новые типы заявок, интерактивная установка на любой VPS и удобная работа УК в pgAdmin.
+</p>
+
+<h3><span class="tag tag-add">добавлено</span></h3>
+
+<table>
+  <tr><th>Что</th><th>Зачем именно так</th></tr>
+  <tr>
+    <td class="what">«Заказать услугу»: поверка счётчика ХВС/ГВС, замена батарей</td>
+    <td>Схема от разработчика: кухня / ванная → ГВС / ХВС; кухня / комната → сколько комнат. Уточнение — в <code>detail_code</code>, схема БД не менялась</td>
+  </tr>
+  <tr>
+    <td class="what">«Замена счётчиков ГВС/ХВС» в списке проблем</td>
+    <td>Заявка — в УК: опломбировка и ввод в эксплуатацию. Срок жителю не обещаем — не сверен</td>
+  </tr>
+  <tr>
+    <td class="what">Дата и время смены статуса</td>
+    <td>В уведомлении и в карточке заявки; берётся из события <code>status_changed</code></td>
+  </tr>
+  <tr>
+    <td class="what">Плашка «без подтверждения» над экстренными вариантами 🆘</td>
+    <td>Экстренная заявка уходит сразу — житель должен знать это до нажатия</td>
+  </tr>
+  <tr>
+    <td class="what">«Подробнее» и «Понятно» под уведомлением</td>
+    <td>Уведомление убирается, меню или карточка приходят вниз чата — кнопки для новой заявки всегда под рукой</td>
+  </tr>
+  <tr>
+    <td class="what">Интерактивный установщик <code>scripts/deploy-vps.sh</code></td>
+    <td>Порты, БД, домен, nginx, HTTPS; Enter — значение по умолчанию; <code>--dry-run</code> показывает план, ничего не меняя</td>
+  </tr>
+  <tr>
+    <td class="what">ФИО жителя и русские копии таблиц для pgAdmin (<code>0010</code>, <code>0011</code>)</td>
+    <td>Копии один в один с таблицами — открыть рядом и сверять правку</td>
+  </tr>
+  <tr>
+    <td class="what">Импорт из Excel: инструкция и шаблоны</td>
+    <td>Главный подводный камень — Excel превращает телефон в <code>8,9E+10</code>; <code>--dry-run</code> проверяет и ограничения</td>
+  </tr>
+</table>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Симптом</th><th>Решение</th></tr>
+  <tr>
+    <td class="what">Установка падала на существующей базе с другим паролем</td>
+    <td>Установщик проверяет вход в базу до сборки и предлагает ввести пароль от неё или пересоздать</td>
+  </tr>
+  <tr>
+    <td class="what">Сборка мини-аппа: «failed to get console»</td>
+    <td>Вывод сборки больше не глушится</td>
+  </tr>
+  <tr>
+    <td class="what">Порты 80/443 заняты другим прокси (Nginx Proxy Manager)</td>
+    <td>Установщик называет его и ставит nginx за ним на отдельный порт</td>
+  </tr>
+  <tr>
+    <td class="what">На свежем VPS apt занят автообновлениями, dpkg прерван</td>
+    <td>Ожидание блокировки и <code>dpkg --configure -a</code> перед установкой пакетов</td>
+  </tr>
+  <tr>
+    <td class="what">Бот писал в лог только «fetch failed»</td>
+    <td>Теперь с причиной: <code>ETIMEDOUT</code>, ошибка сертификата и т. п.</td>
+  </tr>
+  <tr>
+    <td class="what">Миграция <code>0010</code> на свежей базе</td>
+    <td>Новое значение enum нельзя использовать в той же транзакции, где оно добавлено; сравнение — как текст</td>
+  </tr>
+</table>
+
+<div class="warn">
+  <strong>Выяснено при развёртывании.</strong> С VPS в Финляндии MAX Bot API недоступен — бот не работает:
+  нужен сервер с российским IP. Из России закрыты <code>download.docker.com</code> и Docker Hub — установщик
+  ставит Docker из репозитория Ubuntu и прописывает зеркало реестра. Всё это установщик проверяет сам.
+</div>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">67c1783</td><td>feat: услуги и замена счётчиков, время смены статуса, плашка экстренных</td><td class="hash">12:26</td></tr>
+  <tr><td class="hash">63247d9</td><td>feat(scripts): интерактивный установщик на VPS и новая главная страница</td><td class="hash">12:30</td></tr>
+  <tr><td class="hash">f9c70e3</td><td>feat(bot): кнопки «Подробнее» и «Понятно» под уведомлением о статусе</td><td class="hash">12:35</td></tr>
+  <tr><td class="hash">0097bc3</td><td>fix(scripts): проверка входа в существующую базу перед запуском</td><td class="hash">15:38</td></tr>
+  <tr><td class="hash">02fe4a5</td><td>fix(scripts): сборка мини-аппа без терминала, уборка старых контейнеров</td><td class="hash">15:45</td></tr>
+  <tr><td class="hash">e67e457</td><td>fix(scripts): не глушить вывод сборки мини-аппа</td><td class="hash">15:49</td></tr>
+  <tr><td class="hash">20c293a</td><td>fix(scripts): запускать nginx, если он не запущен</td><td class="hash">15:53</td></tr>
+  <tr><td class="hash">957b7bc</td><td>feat(scripts): работа за чужим прокси на 80/443 (Nginx Proxy Manager)</td><td class="hash">16:00</td></tr>
+  <tr><td class="hash">d23f48f</td><td>fix(scripts): пояснять, что адрес без домена — внутренний</td><td class="hash">16:08</td></tr>
+  <tr><td class="hash">68a3636</td><td>docs(readme): прописать deploy-ключ в ~/.ssh/config перед клоном</td><td class="hash">16:39</td></tr>
+  <tr><td class="hash">c80659a</td><td>fix(scripts): ждать apt и доделывать прерванную настройку dpkg</td><td class="hash">17:37</td></tr>
+  <tr><td class="hash">220c294</td><td>fix(scripts): проверка доменов и понятная ошибка certbot</td><td class="hash">18:09</td></tr>
+  <tr><td class="hash">66da33e</td><td>fix(bot): писать в лог причину сетевой ошибки, а не только «fetch failed»</td><td class="hash">18:35</td></tr>
+  <tr><td class="hash">3129504</td><td>docs,fix(scripts): MAX Bot API недоступен с зарубежного VPS — проверка в установщике</td><td class="hash">18:38</td></tr>
+  <tr><td class="hash">b88a9eb</td><td>fix(scripts): Docker из репозитория Ubuntu, если download.docker.com закрыт</td><td class="hash">19:29</td></tr>
+  <tr><td class="hash">8377bdc</td><td>fix(scripts): зеркало Docker Hub, если registry-1.docker.io закрыт</td><td class="hash">19:34</td></tr>
+  <tr><td class="hash">beea7db</td><td>feat(db,api): ФИО жителя и русские представления для pgAdmin</td><td class="hash">23:27</td></tr>
+  <tr><td class="hash">08f2db5</td><td>docs: импорт жителей из Excel — инструкция и шаблоны; fix: 0010 на свежей базе</td><td class="hash">23:32</td></tr>
+  <tr><td class="hash">f9afe37</td><td>feat(db): русские представления — зеркало таблиц один в один (0011)</td><td class="hash">23:51</td></tr>
+</table>
+
+<!-- ────────────────────────────────────────────────────────────────── -->
+
+<h2>Д‑2 · Аварийные телефоны, сверка контракта</h2>
+
+<p class="dayline">
+  <span class="badge">ИТОГ ДНЯ</span>
+  Доведены мелочи перед демо; полный прогон проекта — без ошибок.
+</p>
+
+<h3><span class="tag tag-fix">исправлено</span></h3>
+
+<table>
+  <tr><th>Симптом</th><th>Решение</th></tr>
+  <tr>
+    <td class="what">У дома без телефона АДС при аварии было две кнопки «112»</td>
+    <td>Теперь одна: «112 — единый номер экстренных служб». С телефоном АДС — он и «112, если не отвечают»</td>
+  </tr>
+  <tr>
+    <td class="what">Контракт api обещал ошибку на лишнее поле запроса</td>
+    <td>Fastify такие поля молча отбрасывает — описание приведено к поведению</td>
+  </tr>
+</table>
+
+<div class="ok">
+  <strong>Проверено:</strong> сборка и типы всех трёх частей, тесты api (42/42), поиск секретов,
+  все сценарии бота на чистой базе, установка с нуля — миграции 0001–0011 на пустой базе.
+</div>
+
+<table>
+  <tr><th>Коммит</th><th>Описание</th><th>Время</th></tr>
+  <tr><td class="hash">d512863</td><td>fix(bot,miniapp): одна «112» вместо двух, если у дома нет телефона АДС</td><td class="hash">00:04</td></tr>
+  <tr><td class="hash">4f072d9</td><td>fix(docs): лишние поля запроса отбрасываются, а не дают validation_error</td><td class="hash">00:12</td></tr>
+</table>
+
 <!-- ────────────────────────────────────────────────────────────────── -->
 
 <h2>Отменённые решения</h2>
@@ -416,19 +871,12 @@
 <h2>Что дальше</h2>
 
 <table>
-  <tr><th>День</th><th>Этап</th><th>Результат, по которому будем считать готовым</th></tr>
-  <tr><td class="what">Д‑8</td><td>Данные и правила маршрутизации</td><td><code>resolve(type, place, houseId)</code> возвращает ответственного, срок и ссылку на норматив; добавление строки в конфиг меняет поведение без пересборки образа</td></tr>
-  <tr><td class="what">Д‑7</td><td>Основной сценарий бота</td><td>Сценарий жителя проходится от QR-кода до номера заявки в мобильной и веб-версии MAX</td></tr>
-  <tr><td class="what">Д‑5</td><td>Мини-приложение диспетчера</td><td>Диспетчер меняет статус, изменение видно в списке после перезагрузки</td></tr>
-  <tr><td class="what">Д‑4</td><td>Замыкание петли уведомлений</td><td>Смена статуса → житель получает уведомление в боте за секунды</td></tr>
+  <tr><th>Когда</th><th>Что</th><th>Результат, по которому будем считать готовым</th></tr>
+  <tr><td class="what">Д‑1</td><td>Финальные тексты и сверка сроков</td><td>Тексты Павла вместо черновиков в боте; сверенные сроки помечены <code>deadline_verified</code> — только их увидит житель</td></tr>
+  <tr><td class="what">Д‑1</td><td>Прогон на демо-стенде</td><td>Сценарий демо проходится целиком в мобильном и веб-MAX: заявка, авария, уведомление, мини-приложение</td></tr>
+  <tr><td class="what">Д‑0</td><td>Демо</td><td>Защита</td></tr>
+  <tr><td class="what">после</td><td>Экран диспетчера в мини-приложении, фото к заявке, показания счётчиков</td><td>Сотрудник УК меняет статус без pgAdmin; житель прикладывает фото</td></tr>
 </table>
-
-<div class="warn">
-  <strong>Открытый вопрос к Д‑7.</strong> Сейчас житель заводится в БД только по <code>/start</code>.
-  Человек, начавший диалог обычным сообщением, в базу не попадает — в логах такой чат уже наблюдался.
-  Заводить жителя на любом первом сообщении или оставить только по <code>/start</code> — это поведение
-  диалогового автомата, решается вместе со сценарием.
-</div>
 
 <div class="footer">
   Журнал обновляется в конце каждого дня разработки. Источник — <code>docs/changelog.html</code>,
