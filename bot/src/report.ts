@@ -95,7 +95,8 @@ export type Place = keyof typeof PLACES;
  * config/rules.yaml. Кнопок других мест не показываем: правила для них нет.
  * `yard` в rules.yaml здесь — `street`: какое имя финальное, решает Павел.
  * Газ — сразу экстренная ветка, места у него не спрашиваем.
- * TODO: брать из config/rules.yaml, когда появится маршрутизация.
+ * Список держим вручную рядом с rules.yaml (и в miniapp/src/types/domain.ts):
+ * новое место в правилах — добавить и сюда.
  */
 export const PLACES_BY_TYPE: Record<Exclude<ProblemType, 'gas'>, Place[]> = {
   leak: ['in_apartment', 'entrance', 'whole_house'],
