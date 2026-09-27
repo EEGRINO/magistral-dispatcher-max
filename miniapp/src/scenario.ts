@@ -107,7 +107,15 @@ export interface Phone {
 function adsPhone(house: House | null): Phone {
   return house?.emergency_phone
     ? { label: 'Аварийная служба дома', number: house.emergency_phone }
-    : { label: 'Телефон аварийной службы дома не указан', number: '112' };
+    : { label: 'Единый номер экстренных служб', number: '112' };
+}
+
+/**
+ * Один номер — одна кнопка: без телефона АДС он заменяется на 112, и у лифта
+ * получались две кнопки «112» подряд (решение 28.09.2026). Остаётся первая.
+ */
+function uniquePhones(phones: Phone[]): Phone[] {
+  return phones.filter((phone, i) => phones.findIndex((p) => p.number === phone.number) === i);
 }
 
 /**
@@ -115,6 +123,11 @@ function adsPhone(house: House | null): Phone {
  * в мини-аппе это кнопки звонка, а не строки, которые надо переписывать.
  */
 export function dangerInstructions(type: DangerType, house: House | null): { text: string; phones: Phone[] } {
+  const result = dangerInstructionsRaw(type, house);
+  return { ...result, phones: uniquePhones(result.phones) };
+}
+
+function dangerInstructionsRaw(type: DangerType, house: House | null): { text: string; phones: Phone[] } {
   switch (type) {
     case 'gas_smell':
       return {
