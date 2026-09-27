@@ -106,8 +106,16 @@ function isAbort(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+/**
+ * Текст ошибки для лога. У fetch сама ошибка — только «fetch failed», а
+ * причина (ETIMEDOUT, ENOTFOUND, UNABLE_TO_GET_ISSUER_CERT_LOCALLY…) лежит в
+ * cause — без неё сетевой сбой не отличить от сертификатного.
+ */
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause as { code?: unknown; message?: unknown } | undefined;
+  const detail = cause ? (typeof cause.code === 'string' ? cause.code : typeof cause.message === 'string' ? cause.message : '') : '';
+  return detail ? `${error.message}: ${detail}` : error.message;
 }
 
 /**
@@ -1722,7 +1730,7 @@ async function pollLoop(): Promise<void> {
           if (error instanceof MaxApiError && error.isFatal) throw error;
           log.error('ошибка обработки события', {
             update_type: update.update_type,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorText(error),
           });
         }
       }
@@ -1749,7 +1757,7 @@ async function pollLoop(): Promise<void> {
       log.warn('ошибка опроса — повтор', {
         attempt: failures,
         delay_ms: delayMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       });
       await sleep(delayMs);
     }
