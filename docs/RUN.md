@@ -110,17 +110,27 @@ CHROME_PATH=/path/to/chrome node scripts/build-changelog-pdf.mjs
 
 ## Работа с БД
 
+Консоль psql:
+
 ```bash
-# консоль psql
 docker compose exec db psql -U max -d max_dispatcher
+```
 
-# применить новые миграции вручную
+Применить новые миграции вручную:
+
+```bash
 docker compose run --rm migrate
+```
 
-# откатить последнюю миграцию
+Откатить последнюю миграцию:
+
+```bash
 docker compose run --rm migrate npm run migrate:down
+```
 
-# загрузить ТЕСТОВЫЕ организации и дома (не для продакшена)
+Загрузить **тестовые** организации и дома (не для продакшена):
+
+```bash
 docker compose run --rm migrate npm run seed
 ```
 
@@ -138,8 +148,10 @@ docker compose run --rm migrate npm run seed
 
 ```bash
 docker compose restart api
-docker compose logs api | grep "правила маршрутизации"   # сколько правил загружено
+docker compose logs api | grep "правила маршрутизации"
 ```
+
+Вторая команда покажет, сколько правил загружено.
 
 С ошибкой в файле api не стартует и называет правило и поле, например:
 `config/rules.yaml, правило heating_outage: responsible «rso_teplo» не из
@@ -207,8 +219,10 @@ uk houses add --address "г. Тестоград, ул. Новая, д. 7 к 2" -
 
 ```bash
 uk houses edit 4 --chat https://max.ru/join/новая-ссылка
-uk houses edit 4 --chat -          # «-» — убрать ссылку
+uk houses edit 4 --chat -
 ```
+
+`--chat -` убирает ссылку.
 
 Возможные ошибки:
 
@@ -318,11 +332,28 @@ docker compose exec -T api node dist/cli.js residents import - < жители.cs
 
 Номер жителя (`#12`) — из `uk residents list`.
 
+Поменять квартиру:
+
 ```bash
-uk residents edit 12 --apartment 46            # поменять квартиру
-uk residents edit 12 --floor -                 # стереть этаж
-uk residents edit 12 --address "Примерная 1" --entrance 1 --apartment 7   # переезд
-uk residents edit 12 --phone +79990000001      # новый номер телефона
+uk residents edit 12 --apartment 46
+```
+
+Стереть этаж:
+
+```bash
+uk residents edit 12 --floor -
+```
+
+Переезд:
+
+```bash
+uk residents edit 12 --address "Примерная 1" --entrance 1 --apartment 7
+```
+
+Новый номер телефона:
+
+```bash
+uk residents edit 12 --phone +79990000001
 ```
 
 - **Переезд.** Старые заявки жителя остаются на прежнем адресе.
@@ -349,10 +380,14 @@ uk residents archive 12
 ### Шаг 4. Заявки: посмотреть и сменить статус
 
 ```bash
-uk tickets list --active              # незакрытые, новые сверху
-uk tickets list --house 4             # заявки дома
-uk tickets status 12 в_работе         # или: принята, решена
+uk tickets list --active
+uk tickets list --house 4
+uk tickets status 12 в_работе
 ```
+
+- `--active` — только незакрытые, новые сверху;
+- `--house 4` — заявки одного дома;
+- статус — `принята`, `в_работе`, `решена` или `отменена`.
 
 ```
 #12  [в работе]  heating · whole_house  2026-09-26
@@ -514,9 +549,16 @@ ORDER BY t.id DESC;
 
 ## Остановка
 
+Остановить, данные БД сохраняются в volume:
+
 ```bash
-docker compose down        # остановить, данные БД сохраняются в volume
-docker compose down -v     # остановить и стереть данные БД
+docker compose down
+```
+
+Остановить и **стереть** данные БД:
+
+```bash
+docker compose down -v
 ```
 
 ## Запуск без Docker (для разработки)
@@ -525,9 +567,11 @@ docker compose down -v     # остановить и стереть данные
 Node.js 22+ должен быть установлен локально:
 
 ```bash
-cd bot && npm install && npm run dev     # бот, читает переменные из ../.env
-cd api && npm install && npm run dev     # api, читает переменные из ../.env
+cd bot && npm install && npm run dev
+cd api && npm install && npm run dev
 ```
+
+Первая команда — бот, вторая — api. Оба читают переменные из `../.env`.
 
 `db` без Docker поднять нечем — нужен Postgres 16 руками, либо оставить его
 в Docker и поднимать только `bot`/`api` локально.
@@ -714,9 +758,11 @@ sudo nginx -t && sudo systemctl reload nginx
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d api.ВАШ-ДОМЕН -d miniapp.ВАШ-ДОМЕН
-sudo certbot renew --dry-run             # проверка автопродления
-systemctl status certbot.timer           # таймер должен быть active
+sudo certbot renew --dry-run
+systemctl status certbot.timer
 ```
+
+`renew --dry-run` проверяет автопродление, у `certbot.timer` статус должен быть `active`.
 
 **4. Файрвол** — скрипты его не трогают:
 
@@ -728,10 +774,13 @@ sudo ufw allow 443/tcp
 **5. Проверка:**
 
 ```bash
-curl -I https://api.ВАШ-ДОМЕН/health        # HTTP/2 200
-curl -I https://miniapp.ВАШ-ДОМЕН            # HTTP/2 200, отдаёт index.html
-curl -I https://miniapp.ВАШ-ДОМЕН/api/health # HTTP/2 200 — прокси на api живой
+curl -I https://api.ВАШ-ДОМЕН/health
+curl -I https://miniapp.ВАШ-ДОМЕН
+curl -I https://miniapp.ВАШ-ДОМЕН/api/health
 ```
+
+Все три должны ответить `HTTP/2 200`: api, статика мини-аппа (`index.html`) и
+прокси с домена мини-аппа на api.
 
 `/health` через `/api/` отвечающий 503 — не проблема сертификата, это
 `api` не видит БД (`docs/api.md`, раздел `GET /health`).
@@ -824,9 +873,11 @@ Russian Trusted CA (Минцифры РФ), которого нет во вст�
 Диагностика:
 
 ```bash
-docker inspect max-dispatcher-db-1 --format '{{json .NetworkSettings.Networks}}'  # {} — сети нет
-sudo ss -ltnp 'sport = :5432'                                                      # кто держит порт
+docker inspect max-dispatcher-db-1 --format '{{json .NetworkSettings.Networks}}'
+sudo ss -ltnp 'sport = :5432'
 ```
+
+`{}` в первой команде — у контейнера нет сети; вторая показывает, кто держит порт.
 
 Явная ошибка `failed to bind host port 127.0.0.1:5432/tcp: address already in use`
 видна не всегда — при перезапуске контейнера демоном она уходит в журнал
@@ -835,6 +886,8 @@ Docker, а не в вывод `compose`.
 Лечение — перенести наружный порт `db`, чужой Postgres не трогать:
 
 ```bash
-sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env      # DATABASE_URL НЕ менять: там внутренний db:5432
+sed -i 's/^DB_PORT=.*/DB_PORT=5433/' .env
 docker compose down --remove-orphans && docker compose up -d
 ```
+
+`DATABASE_URL` при этом **не менять**: в нём внутренний адрес `db:5432`.
