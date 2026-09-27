@@ -747,7 +747,15 @@ if [ "$WANT_NGINX" -eq 1 ]; then
   for conf in "${confs[@]}"; do $SUDO ln -sf "$conf" /etc/nginx/sites-enabled/; done
 
   if $SUDO nginx -t >/dev/null 2>&1; then
-    $SUDO systemctl reload nginx
+    if $SUDO systemctl is-active --quiet nginx; then
+      $SUDO systemctl reload nginx
+    elif ! $SUDO systemctl enable --now nginx >/dev/null 2>&1; then
+      # Только что поставленный nginx не стартовал — почти всегда порт уже занят.
+      listen_port=80
+      if [ "$WANT_DOMAIN" -eq 0 ]; then listen_port="$NGINX_PORT"; fi
+      holder="$(ss -ltnpH "sport = :${listen_port}" 2>/dev/null | grep -o 'users:(("[^"]*"' | head -n 1 | cut -d'"' -f2 || true)"
+      die "nginx не запустился.${holder:+ Порт ${listen_port} занят программой «${holder}».} Подробности: journalctl -u nginx -n 20 --no-pager"
+    fi
     if [ "$WANT_DOMAIN" -eq 1 ]; then log "nginx: ${API_DOMAIN}, ${APP_DOMAIN}."; else log "nginx: порт ${NGINX_PORT}."; fi
   else
     # Сломанный конфиг не оставляем: откатываем, чтобы не уронить другие сайты.
