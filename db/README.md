@@ -87,6 +87,11 @@ npm run migrate:up
 снимают привязку к MAX; смена адреса дома сбрасывает `street`/`number`, их заново
 разбирает api (`api/src/house-normalizer.ts`, раз в минуту).
 
+[`0011_russian_views_mirror_tables.js`](migrations/0011_russian_views_mirror_tables.js)
+(27.09.2026) — русские представления стали зеркалом таблиц один в один (все
+столбцы в том же порядке, строки по id) — чтобы открывать рядом с таблицей и
+сверять правку; добавлено `организации_дома`.
+
 [`0010_russian_views_and_full_name.js`](migrations/0010_russian_views_and_full_name.js)
 (27.09.2026) — `residents.full_name` (ФИО, необязательное) и русские
 представления для pgAdmin: `жители`, `квартиры`, `дома`, `организации`,
