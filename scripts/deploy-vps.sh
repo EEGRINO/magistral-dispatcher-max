@@ -211,6 +211,25 @@ db_auth_ok() {
     >/dev/null 2>&1
 }
 
+# apt на свежем сервере: первые минуты занят автообновлениями (unattended-upgrades),
+# а прерванное обновление оставляет dpkg недонастроенным — apt-get тогда падает.
+# Ждём освобождения блокировки (до 10 минут) и доделываем настройку dpkg.
+wait_apt() {
+  local waited=0
+  while $SUDO fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
+    if [ "$waited" -eq 0 ]; then log "apt занят (скорее всего, автообновления) — жду…"; fi
+    waited=$((waited + 5))
+    [ "$waited" -le 600 ] || die "apt занят больше 10 минут. Посмотрите: ps aux | grep -E 'apt|dpkg'"
+    sleep 5
+  done
+  $SUDO dpkg --configure -a >/dev/null 2>&1 || true
+}
+
+apt_get() {
+  wait_apt
+  $SUDO apt-get "$@"
+}
+
 token_ready() {
   case "$1" in
     ''|paste-your-*|your-*|change-me*) return 1 ;;
@@ -567,8 +586,8 @@ ask_yn GO "Начинаем?" y
 # ── 3. Пакеты и доступ к репозиторию ────────────────────────────────────────
 section "Пакеты"
 export DEBIAN_FRONTEND=noninteractive
-$SUDO apt-get update -qq
-$SUDO apt-get install -y -qq ca-certificates curl git openssl >/dev/null
+apt_get update -qq
+apt_get install -y -qq ca-certificates curl git openssl >/dev/null
 log "git, curl, openssl на месте."
 
 # Репозиторий приватный: без доступа лучше упасть сейчас, а не после
@@ -598,15 +617,15 @@ if docker compose version >/dev/null 2>&1; then
   log "Docker и compose уже установлены."
 else
   for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
-    $SUDO apt-get remove -y -qq "$pkg" >/dev/null 2>&1 || true
+    apt_get remove -y -qq "$pkg" >/dev/null 2>&1 || true
   done
   $SUDO install -m 0755 -d /etc/apt/keyrings
   $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   $SUDO chmod a+r /etc/apt/keyrings/docker.asc
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable" \
     | $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
-  $SUDO apt-get update -qq
-  $SUDO apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+  apt_get update -qq
+  apt_get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
   $SUDO systemctl enable --now docker >/dev/null 2>&1 || true
   log "Docker установлен."
 fi
@@ -749,7 +768,7 @@ TLS_OK=0
 if [ "$WANT_NGINX" -eq 1 ]; then
   section "nginx"
   if ! command -v nginx >/dev/null 2>&1; then
-    $SUDO apt-get install -y -qq nginx >/dev/null
+    apt_get install -y -qq nginx >/dev/null
     log "nginx установлен."
   fi
   $SUDO mkdir -p "$STATIC_DIR"
@@ -826,7 +845,7 @@ if [ "$WANT_NGINX" -eq 1 ]; then
   if [ "$WANT_TLS" -eq 1 ] && [ "$WANT_DOMAIN" -eq 1 ]; then
     section "HTTPS"
     if ! command -v certbot >/dev/null 2>&1; then
-      $SUDO apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+      apt_get install -y -qq certbot python3-certbot-nginx >/dev/null
     fi
     email_args=(--register-unsafely-without-email)
     if [ -n "$LE_EMAIL" ]; then email_args=(-m "$LE_EMAIL"); fi
