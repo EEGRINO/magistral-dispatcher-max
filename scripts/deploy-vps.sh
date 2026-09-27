@@ -722,8 +722,10 @@ if [ "$WANT_NGINX" -eq 1 ]; then
   $SUDO mkdir -p "$STATIC_DIR"
 
   if [ "$STARTED" -eq 1 ]; then
-    # -T: без терминала — вывод уходит в /dev/null, а не в консоль.
-    $SUDO docker compose --profile deploy run --rm -T --build miniapp-build >/dev/null
+    # Вывод не глушим: сборка (--build) рисует прогресс в консоль и на Linux
+    # падает с «failed to get console», если stdout перенаправлен в /dev/null.
+    # -T — контейнеру терминал не нужен, он только копирует файлы.
+    $SUDO docker compose --profile deploy run --rm -T --build miniapp-build
     log "Мини-приложение собрано в ${STATIC_DIR}."
   else
     warn "Мини-приложение не собрано — нет токена бота (см. «Что осталось» ниже)."
