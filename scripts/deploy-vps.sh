@@ -135,10 +135,26 @@ is_port() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 # Порт слушает кто-то, кроме docker-proxy (docker-proxy — скорее всего наша
 # же прошлая установка, её compose пересоздаст сам).
 port_busy() {
-  command -v ss >/dev/null 2>&1 || return 1
-  local lines
+  [ -n "$(port_holder "$1")" ]
+}
+
+# Кто слушает порт: имя программы, для docker-proxy — имя контейнера.
+# Пусто — порт свободен или его держит наша же установка (контейнеры
+# ${PROJECT_NAME}-*): их compose пересоздаст сам.
+port_holder() {
+  command -v ss >/dev/null 2>&1 || return 0
+  local lines name containers c
   lines="$(ss -ltnpH "sport = :$1" 2>/dev/null || true)"
-  [ -n "$lines" ] && ! grep -q docker-proxy <<<"$lines"
+  [ -n "$lines" ] || return 0
+  name="$(grep -o 'users:(("[^"]*"' <<<"$lines" | head -n 1 | cut -d'"' -f2 || true)"
+  if [ "$name" = docker-proxy ] && command -v docker >/dev/null 2>&1; then
+    containers="$($SUDO docker ps --filter "publish=$1" --format '{{.Names}}' 2>/dev/null || true)"
+    for c in $containers; do
+      if [[ "$c" != "${PROJECT_NAME:-max-dispatcher}-"* ]]; then echo "$c"; return 0; fi
+    done
+    if [ -n "$containers" ]; then return 0; fi
+  fi
+  echo "${name:-неизвестная программа}"
 }
 
 next_free_port() {
@@ -241,6 +257,8 @@ ask REPO_URL    "Репозиторий"      "${CLONE_REPO:-$DEFAULT_REPO}"
 ask BRANCH      "Ветка"            "$DEFAULT_BRANCH"
 
 ENV_FILE="${INSTALL_DIR}/.env"
+# Имя проекта compose = имя каталога: по нему названы контейнеры и том базы.
+PROJECT_NAME="$(basename "$INSTALL_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 
 section "Порты Docker"
 printf '%s  api и PostgreSQL слушают только 127.0.0.1 — снаружи их не видно, наружу отдаёт nginx.%s\n' "$DIM" "$N"
@@ -296,7 +314,6 @@ section "База данных PostgreSQL"
 # (initdb при первом старте). Для уже созданной базы правка .env ничего не
 # поменяет внутри неё — api и migrate просто перестанут входить. Поэтому для
 # существующей базы не спрашиваем вовсе.
-PROJECT_NAME="$(basename "$INSTALL_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 DB_EXISTS=0
 if command -v docker >/dev/null 2>&1 \
    && $SUDO docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx "${PROJECT_NAME}_pgdata"; then
@@ -365,11 +382,26 @@ else
   ask_yn WANT_NGINX "Настроить nginx?" y
 fi
 API_DOMAIN=''; APP_DOMAIN=''; STATIC_DIR=''; WANT_DOMAIN=0; WANT_TLS=0; LE_EMAIL=''; WANT_UFW=0; NGINX_PORT=80
+# 80/443 держит не nginx (например, Nginx Proxy Manager в Docker) — тогда наш
+# nginx эти порты не получит. Домен и сертификат пусть остаются за тем
+# прокси, а наш nginx встанет за ним на отдельный порт.
+FRONT_PROXY=''
+for p in 80 443; do
+  h="$(port_holder "$p")"
+  if [ -n "$h" ] && [ "$h" != nginx ]; then FRONT_PROXY="$h"; break; fi
+done
 if [ "$WANT_NGINX" -eq 1 ]; then
   printf '%s  С доменом: api.домен (наружу только /health) и app.домен (мини-приложение).%s\n' "$DIM" "$N"
   printf '%s  Без домена: мини-приложение по http://IP:порт — только проверить в браузере:%s\n' "$DIM" "$N"
   printf '%s  MAX принимает адрес мини-приложения только https:// (docs/max-notes.md).%s\n' "$DIM" "$N"
-  ask_yn WANT_DOMAIN "Привязать домен?" y
+  if [ -n "$FRONT_PROXY" ]; then
+    warn "Порты 80/443 уже заняты: «${FRONT_PROXY}». Свой домен и сертификат nginx здесь не получит."
+    printf '%s  Настрою nginx на отдельном порту, а домен и HTTPS заведёте в «%s»:%s\n' "$DIM" "$FRONT_PROXY" "$N"
+    printf '%s  прокси с вашего домена на этот сервер и порт (подсказка — в конце).%s\n' "$DIM" "$N"
+    WANT_DOMAIN=0
+  else
+    ask_yn WANT_DOMAIN "Привязать домен?" y
+  fi
 fi
 if [ "$WANT_NGINX" -eq 1 ] && [ "$WANT_DOMAIN" -eq 1 ]; then
   printf '%s  DNS-записи A обоих доменов должны смотреть на этот сервер.%s\n' "$DIM" "$N"
@@ -445,6 +477,7 @@ if [ "$WANT_NGINX" -eq 1 ] && [ "$WANT_DOMAIN" -eq 1 ]; then
   if [ "$WANT_UFW" -eq 1 ]; then printf '  ufw              открыть 80, 443\n'; fi
 elif [ "$WANT_NGINX" -eq 1 ]; then
   printf '  nginx            без домена, порт %s (мини-приложение по http://IP:%s)\n' "$NGINX_PORT" "$NGINX_PORT"
+  if [ -n "$FRONT_PROXY" ]; then printf '  Домен и HTTPS    в «%s» — прокси на этот сервер:%s\n' "$FRONT_PROXY" "$NGINX_PORT"; fi
   printf '  Статика          %s\n' "$STATIC_DIR"
   if [ "$WANT_UFW" -eq 1 ]; then printf '  ufw              открыть %s\n' "$NGINX_PORT"; fi
 else
@@ -746,6 +779,18 @@ if [ "$WANT_NGINX" -eq 1 ]; then
   nginx_app_conf | $SUDO tee "$NGINX_APP_CONF" >/dev/null
   for conf in "${confs[@]}"; do $SUDO ln -sf "$conf" /etc/nginx/sites-enabled/; done
 
+  if [ "$WANT_DOMAIN" -eq 0 ]; then
+    # Наш сайт api с прошлого запуска (с доменом) слушает 80 — без домена он не нужен.
+    $SUDO rm -f "/etc/nginx/sites-enabled/$(basename "$NGINX_API_CONF")"
+    # Порт 80 держит другой прокси — сайт nginx по умолчанию (default, тоже 80)
+    # не дал бы nginx стартовать. Отключаем только ссылку: файл остаётся в
+    # sites-available, вернуть — ln -s ../sites-available/default.
+    if [ -n "$FRONT_PROXY" ] && [ -L /etc/nginx/sites-enabled/default ]; then
+      $SUDO rm -f /etc/nginx/sites-enabled/default
+      log "Отключён сайт nginx по умолчанию (default): порт 80 занимает «${FRONT_PROXY}»."
+    fi
+  fi
+
   if $SUDO nginx -t >/dev/null 2>&1; then
     if $SUDO systemctl is-active --quiet nginx; then
       $SUDO systemctl reload nginx
@@ -830,6 +875,12 @@ if [ "$TOKEN_OK" -eq 0 ]; then
 fi
 if [ "$WANT_NGINX" -eq 1 ] && [ "$TLS_OK" -eq 1 ]; then
   printf '  %d. В настройках бота на business.max.ru указать адрес мини-приложения: %s\n' "$step" "$APP_URL"
+  step=$((step + 1))
+elif [ "$WANT_NGINX" -eq 1 ] && [ -n "$FRONT_PROXY" ]; then
+  printf '  %d. В «%s» добавить прокси для домена мини-приложения:\n' "$step" "$FRONT_PROXY"
+  printf '       куда — http://%s:%s (Forward Hostname/IP и Port в Nginx Proxy Manager),\n' "${server_ip:-IP-сервера}" "$NGINX_PORT"
+  printf '       там же выпустить сертификат Let'\''s Encrypt и включить Force SSL.\n'
+  printf '     Затем в настройках бота на business.max.ru указать https://ваш-домен\n'
   step=$((step + 1))
 elif [ "$WANT_NGINX" -eq 1 ]; then
   printf '  %d. MAX принимает адрес мини-приложения только https://: нужен домен и сертификат (запустите скрипт снова).\n' "$step"
