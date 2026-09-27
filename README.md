@@ -74,10 +74,10 @@ Git сам пробует только ключи со стандартными 
 ```bash
 printf 'Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/max_deploy_key\n  IdentitiesOnly yes\n' >> ~/.ssh/config
 chmod 600 ~/.ssh/config
-ssh -T git@github.com    # «Hi EEGRINO/magistral-dispatcher-max! …» — ключ работает
+ssh -T git@github.com
 ```
 
-Подробнее — [`docs/RUN.md`](docs/RUN.md#доступ-с-сервера-к-приватному-репозиторию).
+Ответ `Hi EEGRINO/magistral-dispatcher-max! …` значит, что ключ работает. Подробнее — [`docs/RUN.md`](docs/RUN.md#доступ-с-сервера-к-приватному-репозиторию).
 
 ### 2️⃣ Запустить установщик
 
@@ -165,20 +165,22 @@ sudo bash /tmp/max-setup/scripts/deploy-vps.sh
 
 ```bash
 cd /opt/max-dispatcher && git pull && docker compose up -d --build
-docker compose --profile deploy run --rm --build miniapp-build   # если менялся miniapp/
+docker compose --profile deploy run --rm --build miniapp-build
 ```
 
-Новые миграции БД применяются сами при `up`.
+Вторая команда нужна, только если менялся `miniapp/`. Новые миграции БД применяются сами при `up`.
 
 ---
 
 ## 💻 Локальный запуск
 
 ```bash
-cp .env.example .env                  # вписать MAX_BOT_TOKEN
-git config core.hooksPath .githooks   # проверка секретов перед коммитом
+cp .env.example .env
+git config core.hooksPath .githooks
 docker compose up --build
 ```
+
+В `.env` впишите `MAX_BOT_TOKEN`. Вторая команда включает проверку секретов перед каждым коммитом.
 
 Проверка: `curl http://localhost:3000/health` → `{"status":"ok","db":"ok",…}`, затем `/start` боту в MAX.
 Номер телефона должен быть заранее заведён в базу — `SEED_TEST_PHONES` в `.env` и seed ([`db/README.md`](db/README.md)).
