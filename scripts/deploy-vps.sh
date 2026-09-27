@@ -280,6 +280,27 @@ fi
 CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-noble}}"
 log "Система: ${PRETTY_NAME:-?}"
 
+# Бот ходит в MAX Bot API сам (long polling). С зарубежного сервера API может
+# быть недоступен (проверено 27.09.2026 на VPS в Финляндии, docs/max-notes.md) —
+# лучше узнать это сейчас, а не после установки. 401 без токена — API доступен.
+if command -v curl >/dev/null 2>&1; then
+  # -k: цепочки Минцифры (Russian Trusted CA) нет в ca-certificates Ubuntu, а
+  # здесь важна только доступность — сертификат бот проверяет своим (bot/certs).
+  max_code="$(curl -4 -k -sS -m 10 -o /dev/null -w '%{http_code}' https://platform-api2.max.ru/me 2>/dev/null || true)"
+  case "$max_code" in
+    401|200) log "MAX Bot API доступен с этого сервера." ;;
+    *)
+      warn "MAX Bot API (platform-api2.max.ru) с этого сервера недоступен (ответ: ${max_code:-нет})."
+      warn "Бот здесь работать не сможет. Похоже на сервер вне России — нужен сервер с российским IP."
+      if [ -n "$TTY_IN" ]; then
+        go_anyway=0
+        ask_yn go_anyway "Всё равно продолжить установку?" n
+        [ "$go_anyway" -eq 1 ] || { warn "Остановлено — ничего не изменено."; exit 0; }
+      fi
+      ;;
+  esac
+fi
+
 # Сборка образов — три npm install подряд. С 1 ГБ RAM без swap node ловит
 # OOM-kill, и compose падает с невнятным «exit code 137».
 RAM_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)"
