@@ -64,7 +64,17 @@ cat ~/.ssh/max_deploy_key.pub
 ```
 
 Ключ → GitHub → **Settings → Deploy keys → Add deploy key**, галочку «Allow write access» не ставить.
-Как научить git этим ключом пользоваться — [`docs/RUN.md`](docs/RUN.md#доступ-с-сервера-к-приватному-репозиторию).
+
+Git сам пробует только ключи со стандартными именами (`id_ed25519`, `id_rsa`) — этот ему нужно назвать,
+иначе клон упадёт с `Permission denied (publickey)`:
+
+```bash
+printf 'Host github.com\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/max_deploy_key\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+chmod 600 ~/.ssh/config
+ssh -T git@github.com    # «Hi EEGRINO/magistral-dispatcher-max! …» — ключ работает
+```
+
+Подробнее — [`docs/RUN.md`](docs/RUN.md#доступ-с-сервера-к-приватному-репозиторию).
 
 ### 2️⃣ Запустить установщик
 
