@@ -345,6 +345,7 @@ async function importResidents(source: string, dryRun: boolean): Promise<void> {
       if (contract !== undefined) fields.contract_number = textOrClear(contract);
       const name = get('name');
       if (name !== undefined) fields.full_name = textOrClear(name);
+      checkLimits(fields);
 
       const query = new URLSearchParams({ phone });
       const { residents } = await call<{ residents: Resident[] }>('GET', `/admin/residents?${query}`);
@@ -367,6 +368,26 @@ async function importResidents(source: string, dryRun: boolean): Promise<void> {
   for (const message of errors) console.log(`  ${message}`);
   if (dryRun) console.log('Проверка (--dry-run): ничего не записано.');
   if (errors.length > 0) process.exitCode = 1;
+}
+
+/**
+ * Те же ограничения, что у api (schemas.ts), — чтобы их ловил и --dry-run, а не
+ * только настоящая загрузка, после того как проверка сказала «ошибок 0».
+ */
+function checkLimits(fields: Record<string, unknown>): void {
+  const between = (key: string, what: string, min: number, max: number) => {
+    const v = fields[key];
+    if (typeof v === 'number' && (v < min || v > max)) throw new CliError(`${what}: от ${min} до ${max}`);
+  };
+  const longest = (key: string, what: string, max: number) => {
+    const v = fields[key];
+    if (typeof v === 'string' && [...v].length > max) throw new CliError(`${what}: не длиннее ${max} символов`);
+  };
+  between('entrance', 'подъезд', 1, 100);
+  between('floor', 'этаж', -5, 200);
+  longest('apartment', 'квартира', 16);
+  longest('contract_number', 'договор', 64);
+  longest('full_name', 'ФИО', 200);
 }
 
 // ── команды ────────────────────────────────────────────────────────────

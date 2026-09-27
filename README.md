@@ -224,6 +224,7 @@ flowchart LR
 | Документ | О чём |
 |---|---|
 | [`docs/RUN.md`](docs/RUN.md) | запуск, деплой, nginx, работа УК, разбор реальных проблем |
+| [`docs/excel-import.md`](docs/excel-import.md) | импорт жителей из Excel: как оформить таблицу, шаблон, ошибки |
 | [`docs/api.md`](docs/api.md) | контракт api — на него завязаны бот и мини-приложение |
 | [`docs/db-overview.md`](docs/db-overview.md) | как устроено хранение данных — без SQL |
 | [`docs/Решения_проекта.md`](docs/Решения_проекта.md) | принятые решения и почему |

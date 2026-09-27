@@ -92,7 +92,9 @@ exports.up = (pgm) => {
              resident_id AS номер_жителя,
              house_id AS номер_дома,
              status AS статус,
-             CASE status
+             -- ::text, а не сравнение с enum: на свежей базе 0008 (значение cancelled)
+             -- и 0010 идут одной транзакцией, а новое значение enum до COMMIT использовать нельзя.
+             CASE status::text
                WHEN 'new' THEN 'принята'
                WHEN 'in_progress' THEN 'в работе'
                WHEN 'resolved' THEN 'решена'
@@ -131,7 +133,7 @@ exports.up = (pgm) => {
       SELECT id AS номер,
              ticket_id AS номер_заявки,
              event_type AS событие,
-             CASE event_type
+             CASE event_type::text
                WHEN 'created' THEN 'заявка создана'
                WHEN 'status_changed' THEN 'статус изменён'
                WHEN 'notified' THEN 'житель уведомлён'
