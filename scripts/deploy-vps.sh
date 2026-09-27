@@ -301,11 +301,14 @@ if command -v curl >/dev/null 2>&1; then
   esac
 fi
 
-# Сборка образов — три npm install подряд. С 1 ГБ RAM без swap node ловит
-# OOM-kill, и compose падает с невнятным «exit code 137».
+# Памяти больше всего нужно при сборке образов (npm install, TypeScript, vite),
+# а не в работе: работающий проект занимает ~450 МБ. На VPS с 1 ГБ (955 МБ,
+# без swap) установка проходит — проверено 28.09.2026. Меньше — node на сборке
+# ловит OOM-kill, и compose падает с невнятным «exit code 137».
 RAM_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)"
-if [ "$RAM_MB" -lt 1800 ]; then
-  warn "RAM ${RAM_MB} МБ — сборка может упасть с кодом 137. Помогает swap:"
+SWAP_MB="$(awk '/SwapTotal/ {print int($2/1024)}' /proc/meminfo)"
+if [ $((RAM_MB + SWAP_MB)) -lt 900 ]; then
+  warn "Памяти ${RAM_MB} МБ, swap ${SWAP_MB} МБ — сборка может упасть с кодом 137. Помогает swap:"
   warn "  fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
 fi
 
