@@ -87,6 +87,13 @@ npm run migrate:up
 снимают привязку к MAX; смена адреса дома сбрасывает `street`/`number`, их заново
 разбирает api (`api/src/house-normalizer.ts`, раз в минуту).
 
+[`0010_russian_views_and_full_name.js`](migrations/0010_russian_views_and_full_name.js)
+(27.09.2026) — `residents.full_name` (ФИО, необязательное) и русские
+представления для pgAdmin: `жители`, `квартиры`, `дома`, `организации`,
+`заявки`, `история_заявок` (+ русские подсказки к столбцам). Таблицы и
+английские имена не меняются — код работает с ними; через представления
+PostgreSQL пропускает и `UPDATE`.
+
 [`0009_resident_premises.js`](migrations/0009_resident_premises.js) (26.09.2026) —
 несколько квартир у жителя: `residents` — человек (телефон, MAX), квартиры — в
 `resident_premises` (дом, подъезд, этаж, квартира, договор). Данные переносятся,

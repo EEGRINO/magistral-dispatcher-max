@@ -172,6 +172,8 @@ export const AdminHouseListResponse = Type.Object({ houses: Type.Array(AdminHous
 export const AdminResident = Type.Object({
   id: Id,
   phone: Type.String(),
+  /** ФИО жителя (0010); null — не указано. Персональные данные — только для УК. */
+  full_name: Nullable(Type.String()),
   house_id: Nullable(Id),
   house_address: Nullable(Type.String()),
   entrance: Nullable(Type.Integer()),
@@ -211,13 +213,16 @@ export const ResidentListQuery = Type.Object(
   { additionalProperties: false },
 );
 
+/** ФИО: любые буквы, 1–200 символов; null — стереть. */
+const FullName = Type.Optional(NullableInput(Type.String({ minLength: 1, maxLength: 200 })));
+
 export const CreateResidentBody = Type.Object(
-  { phone: Phone, ...ResidentPlace },
+  { phone: Phone, full_name: FullName, ...ResidentPlace },
   { additionalProperties: false },
 );
 
 export const UpdateResidentBody = Type.Object(
-  { phone: Type.Optional(Phone), ...ResidentPlace },
+  { phone: Type.Optional(Phone), full_name: FullName, ...ResidentPlace },
   { additionalProperties: false, minProperties: 1 },
 );
 

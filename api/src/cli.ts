@@ -24,6 +24,7 @@ const HELP = `Дома, жители и заявки УК.
 Жители:
   residents list [--house <id>] [--phone <номер>] [--archived]
   residents add  --phone <номер> (--house <id> | --address "…")
+                 [--name "Иванов Иван Иванович"]
                  [--entrance N] [--floor N] [--apartment 12А] [--contract <№>]
   residents edit <id> [те же поля, что у add]
   residents archive <id>
@@ -41,7 +42,7 @@ const HELP = `Дома, жители и заявки УК.
 Архив вместо удаления: войти нельзя, заявки жителя остаются.
 
 CSV: первая строка — заголовки. Обязательны «телефон» и «адрес»; по желанию
-«подъезд», «этаж», «квартира», «договор». Разделитель «;» или «,», кодировка
+«ФИО», «подъезд», «этаж», «квартира», «договор». Разделитель «;» или «,», кодировка
 UTF-8 или Windows-1251 (так сохраняет Excel). Жители из файла заводятся или
 обновляются по телефону; пустая ячейка значение не меняет, «-» — стирает.
 Кого нет в файле — не трогаются. Дома должны быть заведены заранее (houses add).
@@ -82,6 +83,7 @@ interface House {
 interface Resident {
   id: number;
   phone: string;
+  full_name: string | null;
   house_id: number | null;
   house_address: string | null;
   entrance: number | null;
@@ -152,7 +154,7 @@ function printResident(r: Resident): void {
     .join(', ');
 
   console.log(
-    `#${r.id}  ${r.phone}  ${r.house_address ?? 'дом не указан'}${place ? `, ${place}` : ''}` +
+    `#${r.id}  ${r.phone}${r.full_name ? `  ${r.full_name}` : ''}  ${r.house_address ?? 'дом не указан'}${place ? `, ${place}` : ''}` +
       (r.premises_count > 1 ? `   (+${r.premises_count - 1} кв. — в pgAdmin, resident_premises)` : '') +
       '\n' +
       `     договор: ${r.contract_number ?? '—'}   вошёл в бота: ${r.max_linked ? 'да' : 'нет'}` +
@@ -184,6 +186,8 @@ async function residentFields(values: Values): Promise<Record<string, unknown>> 
   if (apartment !== undefined) fields.apartment = textOrClear(apartment);
   const contract = str('contract');
   if (contract !== undefined) fields.contract_number = textOrClear(contract);
+  const name = str('name');
+  if (name !== undefined) fields.full_name = textOrClear(name);
 
   return fields;
 }
@@ -284,6 +288,7 @@ const HEADERS: Record<string, string> = {
   этаж: 'floor', floor: 'floor',
   квартира: 'apartment', кв: 'apartment', apartment: 'apartment',
   договор: 'contract', '№ договора': 'contract', 'номер договора': 'contract', contract: 'contract',
+  фио: 'name', 'ф.и.о': 'name', 'ф. и. о': 'name', имя: 'name', name: 'name', full_name: 'name',
 };
 
 async function importResidents(source: string, dryRun: boolean): Promise<void> {
@@ -338,6 +343,8 @@ async function importResidents(source: string, dryRun: boolean): Promise<void> {
       if (apartment !== undefined) fields.apartment = textOrClear(apartment);
       const contract = get('contract');
       if (contract !== undefined) fields.contract_number = textOrClear(contract);
+      const name = get('name');
+      if (name !== undefined) fields.full_name = textOrClear(name);
 
       const query = new URLSearchParams({ phone });
       const { residents } = await call<{ residents: Resident[] }>('GET', `/admin/residents?${query}`);
@@ -377,6 +384,7 @@ async function main(argv: string[]): Promise<void> {
       floor: { type: 'string' },
       apartment: { type: 'string' },
       contract: { type: 'string' },
+      name: { type: 'string' },
       archived: { type: 'boolean' },
       active: { type: 'boolean' },
       'dry-run': { type: 'boolean' },

@@ -74,6 +74,7 @@ function requireParsed(address: string) {
 interface AdminResidentRow {
   id: number;
   phone: string;
+  full_name: string | null;
   house_id: number | null;
   house_address: string | null;
   entrance: number | null;
@@ -89,7 +90,7 @@ interface AdminResidentRow {
 
 /** Основная квартира — первая заведённая (наименьший id), см. 0009. */
 const RESIDENT_SELECT = `
-  SELECT r.id, r.phone, p.house_id, h.address AS house_address,
+  SELECT r.id, r.phone, r.full_name, p.house_id, h.address AS house_address,
          p.entrance, p.floor, p.apartment, p.contract_number,
          (SELECT count(*) FROM resident_premises x WHERE x.resident_id = r.id)::int AS premises_count,
          (r.max_user_id IS NOT NULL) AS max_linked,
@@ -302,9 +303,10 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
       // Несуществующий house_id — FK → 400 invalid_reference;
       // номер уже заведён — UNIQUE → 409 conflict.
       const id = await withTransaction(async (client) => {
-        const { rows } = await client.query<{ id: number }>('INSERT INTO residents (phone) VALUES ($1) RETURNING id', [
-          body.phone,
-        ]);
+        const { rows } = await client.query<{ id: number }>(
+          'INSERT INTO residents (phone, full_name) VALUES ($1, $2) RETURNING id',
+          [body.phone, body.full_name?.trim() || null],
+        );
         const residentId = rows[0]!.id;
         await savePlace(client, residentId, body);
         return residentId;
@@ -348,6 +350,8 @@ export const adminRoutes: FastifyPluginAsyncTypebox = async (app) => {
           `max_chat_id = CASE WHEN phone = ${p} THEN max_chat_id END`,
         );
       }
+      if (body.full_name !== undefined) sets.push(`full_name = ${param(body.full_name?.trim() || null)}`);
+
       const updated = await withTransaction(async (client) => {
         const { rows } = await client.query<{ id: number }>(
           `UPDATE residents SET ${sets.join(', ')}
