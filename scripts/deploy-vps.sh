@@ -654,23 +654,32 @@ log "Репозиторий доступен."
 
 # ── 4. Docker ───────────────────────────────────────────────────────────────
 section "Docker"
-# Из репозитория Docker, а не из apt Ubuntu и не snap: в docker.io нет
-# compose-plugin, а snap-версия спотыкается на bind-mount'ах.
+# Сначала — официальный репозиторий Docker (свежие версии, compose и buildx).
+# Из России download.docker.com бывает закрыт (27.09.2026: тайм-аут TLS) — тогда
+# пакеты Ubuntu: docker.io + docker-compose-v2 (в 22.04/24.04 это compose v2,
+# так же стоит рабочий сервер). snap не берём: спотыкается на bind-mount'ах.
 if docker compose version >/dev/null 2>&1; then
   log "Docker и compose уже установлены."
-else
+elif curl -fsSL -m 20 https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.asc 2>/dev/null; then
   for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
     apt_get remove -y -qq "$pkg" >/dev/null 2>&1 || true
   done
   $SUDO install -m 0755 -d /etc/apt/keyrings
-  $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  $SUDO chmod a+r /etc/apt/keyrings/docker.asc
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable" \
-    | $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
+  $SUDO install -m 0644 /tmp/docker.asc /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable"     | $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
   apt_get update -qq
   apt_get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
   $SUDO systemctl enable --now docker >/dev/null 2>&1 || true
-  log "Docker установлен."
+  log "Docker установлен из репозитория Docker."
+else
+  warn "download.docker.com недоступен (из России бывает закрыт) — ставлю Docker из репозитория Ubuntu."
+  apt_get update -qq
+  apt_get install -y -qq docker.io docker-compose-v2 >/dev/null
+  # buildx необязателен: без него compose пишет предупреждение, но собирает.
+  apt_get install -y -qq docker-buildx >/dev/null 2>&1 || true
+  $SUDO systemctl enable --now docker >/dev/null 2>&1 || true
+  docker compose version >/dev/null 2>&1     || die "Docker поставился, а «docker compose» не работает. Проверьте: apt-cache policy docker-compose-v2"
+  log "Docker установлен из репозитория Ubuntu."
 fi
 
 # Группа docker действует только в НОВОЙ сессии — сам скрипт ходит через $SUDO.
