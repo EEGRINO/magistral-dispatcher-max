@@ -22,6 +22,10 @@
 #
 # Использование:
 #   sudo bash scripts/deploy-vps.sh             — с вопросами
+#
+# Можно запускать из клона репозитория или из распакованного архива релиза —
+# во втором случае git и доступ к GitHub не нужны.
+#
 #   sudo bash scripts/deploy-vps.sh --yes       — без вопросов, всё по умолчанию (nginx не трогается)
 #   sudo bash scripts/deploy-vps.sh --dry-run   — только вопросы, сводка и конфиги nginx; ничего не меняет
 #
@@ -260,7 +264,9 @@ token_ready() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
-printf '\n%s  🏠  Диспетчер обращений — установка на сервер%s\n' "$B" "$N"
+# Версия — из файла VERSION рядом с проектом (в клоне и в архиве релиза).
+APP_VERSION="$(cat "$(dirname "${BASH_SOURCE[0]:-$0}")/../VERSION" 2>/dev/null || echo dev)"
+printf '\n%s  🏠  Диспетчер обращений %s — установка на сервер%s\n' "$B" "$APP_VERSION" "$N"
 printf '%s  Enter на любой вопрос — значение в [скобках]. До «Начинаем?» ничего не меняется.%s\n' "$DIM" "$N"
 
 # ── 0. Сервер ───────────────────────────────────────────────────────────────
@@ -315,11 +321,22 @@ fi
 # ── 1. Вопросы ──────────────────────────────────────────────────────────────
 section "Куда ставить"
 # Скрипт запущен из клона — берём адрес оттуда: он заведомо рабочий.
+# Запущен из распакованного архива релиза (есть docker-compose.yml, нет .git) —
+# можно ставить прямо из этих файлов: без git, deploy-ключа и доступа к GitHub.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo .)"
+SRC_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd || echo "")"
 CLONE_REPO="$(git -C "$SCRIPT_DIR/.." remote get-url origin 2>/dev/null || true)"
+FROM_ARCHIVE=0
+REPO_URL=''; BRANCH=''
+if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/docker-compose.yml" ] && [ ! -d "$SRC_DIR/.git" ]; then
+  printf '%s  Скрипт запущен из архива релиза %s: %s%s\n' "$DIM" "$APP_VERSION" "$SRC_DIR" "$N"
+  ask_yn FROM_ARCHIVE "Ставить из этого архива (без git и доступа к GitHub)?" y
+fi
 ask INSTALL_DIR "Каталог установки" "$DEFAULT_DIR"
-ask REPO_URL    "Репозиторий"      "${CLONE_REPO:-$DEFAULT_REPO}"
-ask BRANCH      "Ветка"            "$DEFAULT_BRANCH"
+if [ "$FROM_ARCHIVE" -eq 0 ]; then
+  ask REPO_URL "Репозиторий" "${CLONE_REPO:-$DEFAULT_REPO}"
+  ask BRANCH   "Ветка"       "$DEFAULT_BRANCH"
+fi
 
 ENV_FILE="${INSTALL_DIR}/.env"
 # Имя проекта compose = имя каталога: по нему названы контейнеры и том базы.
@@ -522,7 +539,11 @@ fi
 yesno() { [ "$1" -eq 1 ] && echo "да" || echo "нет"; }
 section "Сводка"
 printf '  Каталог          %s\n' "$INSTALL_DIR"
-printf '  Репозиторий      %s (%s)\n' "$REPO_URL" "$BRANCH"
+if [ "$FROM_ARCHIVE" -eq 1 ]; then
+  printf '  Источник         архив релиза %s (%s)\n' "$APP_VERSION" "$SRC_DIR"
+else
+  printf '  Репозиторий      %s (%s)\n' "$REPO_URL" "$BRANCH"
+fi
 printf '  Порты            api %s, PostgreSQL %s (127.0.0.1)\n' "$API_PORT" "$DB_PORT"
 if [ -n "$NEW_TOKEN" ]; then printf '  Токен бота       будет записан в .env\n'
 elif [ "${KEEP_TOKEN:-0}" -eq 1 ]; then printf '  Токен бота       остаётся прежним\n'
@@ -639,7 +660,7 @@ log "git, curl, openssl на месте."
 # Репозиторий приватный: без доступа лучше упасть сейчас, а не после
 # двух минут установки Docker. GIT_TERMINAL_PROMPT=0 — иначе git на
 # приватном https-адресе повиснет на запросе логина.
-if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
+if [ "$FROM_ARCHIVE" -eq 0 ] && ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes" \
      git ls-remote --heads "$REPO_URL" "$BRANCH" >/dev/null 2>&1; then
   cat >&2 <<EOF
 
@@ -653,7 +674,7 @@ ${R}✗${N} Нет доступа к репозиторию: ${REPO_URL} (вет
 EOF
   exit 1
 fi
-log "Репозиторий доступен."
+if [ "$FROM_ARCHIVE" -eq 0 ]; then log "Репозиторий доступен."; fi
 
 # ── 4. Docker ───────────────────────────────────────────────────────────────
 section "Docker"
@@ -721,7 +742,20 @@ fi
 
 # ── 5. Код ──────────────────────────────────────────────────────────────────
 section "Код"
-if [ -d "$INSTALL_DIR/.git" ]; then
+if [ "$FROM_ARCHIVE" -eq 1 ]; then
+  if [ "$(realpath -m "$SRC_DIR")" = "$(realpath -m "$INSTALL_DIR")" ]; then
+    log "Ставлю прямо из каталога архива (версия ${APP_VERSION})."
+  else
+    if [ -d "$INSTALL_DIR/.git" ]; then
+      warn "В ${INSTALL_DIR} — установка из git: файлы архива лягут поверх, git покажет их как изменения."
+    fi
+    # Поверх прежней версии: .env и база не затрагиваются — их в архиве нет.
+    $SUDO mkdir -p "$INSTALL_DIR"
+    $SUDO cp -a "$SRC_DIR/." "$INSTALL_DIR/"
+    if [ "$TARGET_USER" != "root" ]; then $SUDO chown -R "$TARGET_USER:$TARGET_USER" "$INSTALL_DIR"; fi
+    log "Файлы версии ${APP_VERSION} скопированы в ${INSTALL_DIR}."
+  fi
+elif [ -d "$INSTALL_DIR/.git" ]; then
   # --ff-only: правки на сервере — повод остановиться, а не делать merge на проде.
   GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_DIR" fetch origin "$BRANCH" --quiet
   if git -C "$INSTALL_DIR" merge --ff-only "origin/${BRANCH}" --quiet; then
@@ -1006,7 +1040,9 @@ step=$((step + 1))
 printf '  %d. Написать боту /start в MAX → «Поделиться контактом».\n' "$step"
 echo
 # Одной строкой, с настоящим каталогом — чтобы скопировать и не гадать с путём.
-if [ "$WANT_NGINX" -eq 1 ]; then
+if [ "$FROM_ARCHIVE" -eq 1 ]; then
+  printf '%sОбновление потом:%s скачать архив новой версии, распаковать и запустить из него\n  bash scripts/deploy-vps.sh с каталогом %s — .env и база сохранятся.\n' "$DIM" "$N" "$INSTALL_DIR"
+elif [ "$WANT_NGINX" -eq 1 ]; then
   printf '%sОбновление потом:%s\n  cd %s && git pull && docker compose up -d --build && docker compose --profile deploy run --rm --build miniapp-build\n' "$DIM" "$N" "$INSTALL_DIR"
 else
   printf '%sОбновление потом:%s\n  cd %s && git pull && docker compose up -d --build\n' "$DIM" "$N" "$INSTALL_DIR"
