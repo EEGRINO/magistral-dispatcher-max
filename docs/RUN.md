@@ -628,9 +628,10 @@ ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
 Рутинное обновление:
 
 ```bash
-cd /opt/max-dispatcher
-git pull origin main && docker compose up -d --build
+cd ~/путь_до_папки_проекта && git pull && docker compose up -d --build && docker compose --profile deploy run --rm --build miniapp-build
 ```
+
+`~/путь_до_папки_проекта` — каталог, который вы указали установщику (по умолчанию `/opt/max-dispatcher`). Последняя часть пересобирает мини-приложение — без изменений в `miniapp/` её можно не запускать.
 
 Пересоберутся только изменившиеся образы; новые миграции применятся сами
 (`migrate` перезапускается вместе с обновлённым образом `db`, см.
@@ -670,7 +671,7 @@ docker compose --profile deploy run --rm miniapp-build
 **2. Конфиги nginx.** Порт api берётся из `.env`, не хардкодится:
 
 ```bash
-API_PORT="$(sed -n 's|^API_PORT=||p' /opt/max-dispatcher/.env | tail -n1)"
+API_PORT="$(sed -n 's|^API_PORT=||p' ~/путь_до_папки_проекта/.env | tail -n1)"
 API_PORT="${API_PORT:-3000}"
 ```
 

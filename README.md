@@ -164,11 +164,10 @@ sudo bash /tmp/max-setup/scripts/deploy-vps.sh
 ### 🔄 Обновление
 
 ```bash
-cd /opt/max-dispatcher && git pull && docker compose up -d --build
-docker compose --profile deploy run --rm --build miniapp-build
+cd ~/путь_до_папки_проекта && git pull && docker compose up -d --build && docker compose --profile deploy run --rm --build miniapp-build
 ```
 
-Вторая команда нужна, только если менялся `miniapp/`. Новые миграции БД применяются сами при `up`.
+`~/путь_до_папки_проекта` — каталог, который вы указали установщику (по умолчанию `/opt/max-dispatcher`). Последняя часть пересобирает мини-приложение — без изменений в `miniapp/` её можно не запускать. Новые миграции БД применяются сами при `up`.
 
 ---
 

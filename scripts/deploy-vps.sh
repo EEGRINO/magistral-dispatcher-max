@@ -1002,9 +1002,11 @@ printf '  %d. Завести дома и жителей — docs/RUN.md, «До�
 step=$((step + 1))
 printf '  %d. Написать боту /start в MAX → «Поделиться контактом».\n' "$step"
 echo
-printf '%sОбновление потом:%s cd %s && git pull && docker compose up -d --build\n' "$DIM" "$N" "$INSTALL_DIR"
+# Одной строкой, с настоящим каталогом — чтобы скопировать и не гадать с путём.
 if [ "$WANT_NGINX" -eq 1 ]; then
-  printf '%s  мини-приложение: docker compose --profile deploy run --rm --build miniapp-build%s\n' "$DIM" "$N"
+  printf '%sОбновление потом:%s\n  cd %s && git pull && docker compose up -d --build && docker compose --profile deploy run --rm --build miniapp-build\n' "$DIM" "$N" "$INSTALL_DIR"
+else
+  printf '%sОбновление потом:%s\n  cd %s && git pull && docker compose up -d --build\n' "$DIM" "$N" "$INSTALL_DIR"
 fi
 
 if [ "$NEED_RELOGIN" -eq 1 ]; then
