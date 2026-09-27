@@ -698,14 +698,16 @@ if [ "$TOKEN_OK" -eq 1 ]; then
   fi
 
   log "Собираю и поднимаю контейнеры — пара минут…"
-  if ! $SUDO docker compose up -d --build; then
+  # --remove-orphans: контейнеры проекта, которых больше нет в compose (старый Caddy-прокси
+  # держал бы 80/443, нужные nginx).
+  if ! $SUDO docker compose up -d --build --remove-orphans; then
     die "Контейнеры не поднялись. Причина — в логах: cd ${INSTALL_DIR} && docker compose logs migrate api | tail -40"
   fi
   STARTED=1
   log "Запущено: db → migrate → api → bot."
 
   if [ "$WANT_SEED" -eq 1 ]; then
-    $SUDO docker compose run --rm migrate npm run seed | grep -E '^(Тестовые|  )' || true
+    $SUDO docker compose run --rm -T migrate npm run seed | grep -E '^(Тестовые|  )' || true
   fi
 fi
 
@@ -720,7 +722,8 @@ if [ "$WANT_NGINX" -eq 1 ]; then
   $SUDO mkdir -p "$STATIC_DIR"
 
   if [ "$STARTED" -eq 1 ]; then
-    $SUDO docker compose --profile deploy run --rm --build miniapp-build >/dev/null
+    # -T: без терминала — вывод уходит в /dev/null, а не в консоль.
+    $SUDO docker compose --profile deploy run --rm -T --build miniapp-build >/dev/null
     log "Мини-приложение собрано в ${STATIC_DIR}."
   else
     warn "Мини-приложение не собрано — нет токена бота (см. «Что осталось» ниже)."
