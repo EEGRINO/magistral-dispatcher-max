@@ -62,16 +62,25 @@ import {
   houseChatChoiceKeyboard,
   reportHouseKeyboard,
   typeKeyboard,
+  roomKeyboard,
+  roomsCountKeyboard,
+  serviceKeyboard,
+  waterKeyboard,
 } from './keyboards.js';
 import { log } from './logger.js';
 import { MaxApi, MaxApiError, type MaxAttachment, type MaxUpdate, type SendTarget } from './max-api.js';
 import {
   PLACES_BY_TYPE,
+  ROOMS_BY_TYPE,
+  ROOM_COUNTS,
+  isMeterType,
   isPlace,
   isProblemType,
+  isServiceType,
   type DraftHouse,
   type OwnerZone,
   type ReportDraft,
+  type Room,
 } from './report.js';
 
 const api = new MaxApi();
@@ -483,12 +492,27 @@ async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): P
         return;
       }
       break;
-    case 'type':
-      await send(
-        target,
-        withLead(messages.askType),
-        typeKeyboard(draft.house?.has_gas ?? true, (draft.history?.length ?? 0) > 0),
-      );
+    case 'type': {
+      const withBack = (draft.history?.length ?? 0) > 0;
+      if (draft.mode === 'service') {
+        await send(target, withLead(messages.askService), serviceKeyboard(withBack));
+        return;
+      }
+      const hasGas = draft.house?.has_gas ?? true;
+      await send(target, withLead(messages.askType(hasGas)), typeKeyboard(hasGas, withBack));
+      return;
+    }
+    case 'room':
+      if (draft.type && ROOMS_BY_TYPE[draft.type]) {
+        await send(target, withLead(messages.askRoom(draft.type)), roomKeyboard(draft.type));
+        return;
+      }
+      break;
+    case 'water':
+      await send(target, withLead(messages.askWater), waterKeyboard);
+      return;
+    case 'rooms_count':
+      await send(target, withLead(messages.askRoomsCount), roomsCountKeyboard);
       return;
     case 'clarify':
       if (isClarifyType(draft.type)) {
@@ -497,7 +521,7 @@ async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): P
       }
       break;
     case 'place':
-      if (draft.type) {
+      if (draft.type && !isServiceType(draft.type)) {
         await send(target, withLead(messages.askPlace), placeKeyboard(draft.type));
         return;
       }
@@ -511,14 +535,17 @@ async function askStep(target: SendTarget, draft: ReportDraft, lead?: string): P
         return;
       }
       break;
-    case 'description':
-      await send(target, withLead(messages.askDescription), descriptionKeyboard);
+    case 'description': {
+      const ask = draft.type && isServiceType(draft.type) ? messages.askServiceComment : messages.askDescription;
+      await send(target, withLead(ask), descriptionKeyboard);
       return;
+    }
     case 'confirm':
       if (draft.type) {
         const summary = messages.confirmTicket({
           type: draft.type,
           place: draft.place,
+          detail: draft.detail,
           address: draft.house?.address ?? null,
           description: draft.description ?? null,
         });
@@ -586,7 +613,7 @@ async function afterPlace(target: SendTarget, userId: number, draft: ReportDraft
 
 /** К вопросу «где?». Если место у типа одно (лифт — подъезд), не спрашиваем. */
 async function toPlace(target: SendTarget, userId: number, draft: ReportDraft): Promise<void> {
-  const places = draft.type ? PLACES_BY_TYPE[draft.type] : [];
+  const places = draft.type && !isServiceType(draft.type) ? PLACES_BY_TYPE[draft.type] : [];
   if (places.length === 1) {
     draft.place = places[0];
     await afterPlace(target, userId, draft);
@@ -606,7 +633,7 @@ async function toOwnerZone(target: SendTarget, userId: number, draft: ReportDraf
 async function startReport(
   target: SendTarget,
   userId: number | undefined,
-  options: { resume?: boolean } = {},
+  options: { resume?: boolean; service?: boolean } = {},
 ): Promise<void> {
   if (userId === undefined) {
     await askContact(target);
@@ -637,13 +664,14 @@ async function startReport(
 
   // Новый сценарий — ожидание адреса больше не актуально.
   awaitingAddress.delete(userId);
+  const mode = options.service ? { mode: 'service' as const } : {};
   if (houses.length > 1) {
     // Квартиры в нескольких домах — сначала «В каком доме?» (кейс 10 чек-листа).
     const options = houses.map((house) => toDraftHouse(house)!);
-    await goTo(target, userId, { residentId: resident.id, house: null, houses: options, step: 'house' }, 'house');
+    await goTo(target, userId, { residentId: resident.id, house: null, houses: options, step: 'house', ...mode }, 'house');
     return;
   }
-  await goTo(target, userId, { residentId: resident.id, house: toDraftHouse(houses[0] ?? null), step: 'type' }, 'type');
+  await goTo(target, userId, { residentId: resident.id, house: toDraftHouse(houses[0] ?? null), step: 'type', ...mode }, 'type');
 }
 
 /** Отправить заявку из черновика. При сбое черновик остаётся — можно нажать ещё раз. */
@@ -738,7 +766,7 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
       await askStep(target, draft, messages.chooseButton);
       return;
     }
-    await goTo(target, userId, { residentId: draft.residentId, house: chosen, step: 'type' }, 'type');
+    await goTo(target, userId, { residentId: draft.residentId, house: chosen, step: 'type', mode: draft.mode }, 'type');
     return;
   }
 
@@ -749,13 +777,20 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
     return;
   }
 
-  // «Что случилось?»
-  if (kind === 'type' && isProblemType(value)) {
+  // «Что случилось?» / «Какая услуга нужна?»
+  if (kind === 'type' && (isProblemType(value) || isServiceType(value))) {
     if (value === 'gas') {
       await handleDangerButton(target, userId, 'gas_smell', draft.house);
       return;
     }
-    const next: ReportDraft = { residentId: draft.residentId, house: draft.house, step: 'type', type: value };
+    const next: ReportDraft = { residentId: draft.residentId, house: draft.house, step: 'type', type: value, mode: draft.mode };
+    // Счётчики и батареи — в квартире: место не спрашиваем, дальше «где в квартире?».
+    if (ROOMS_BY_TYPE[value]) {
+      next.place = 'in_apartment';
+      await goTo(target, userId, next, 'room');
+      return;
+    }
+    if (isServiceType(value)) return; // у каждой услуги есть шаг «где», сюда не попасть
     if (isClarifyType(value)) {
       await goTo(target, userId, next, 'clarify');
     } else {
@@ -795,8 +830,43 @@ async function handleTicketButton(target: SendTarget, userId: number | undefined
     }
   }
 
+  // «Где в квартире?» — счётчики: дальше ГВС/ХВС; батареи: кухня — к описанию, комната — «сколько?».
+  if (kind === 'room' && draft.step === 'room' && draft.type && ROOMS_BY_TYPE[draft.type]?.includes(value as Room)) {
+    const room = value as Room;
+    draft.room = room;
+    if (isMeterType(draft.type)) {
+      await goTo(target, userId, draft, 'water');
+    } else if (room === 'room') {
+      await goTo(target, userId, draft, 'rooms_count');
+    } else {
+      draft.detail = room;
+      await goTo(target, userId, draft, 'description');
+    }
+    return;
+  }
+
+  // «Какой счётчик?» — detail_code: помещение + вода, kitchen_hot…
+  if (kind === 'water' && draft.step === 'water' && draft.room && (value === 'hot' || value === 'cold')) {
+    draft.detail = `${draft.room}_${value}`;
+    await goTo(target, userId, draft, 'description');
+    return;
+  }
+
+  // «Сколько комнат?» — rooms_one … rooms_five_plus.
+  if (kind === 'rooms' && draft.step === 'rooms_count' && value in ROOM_COUNTS) {
+    draft.detail = `rooms_${value}`;
+    await goTo(target, userId, draft, 'description');
+    return;
+  }
+
   // «Где?» — только места, для которых у типа есть правило.
-  if (kind === 'place' && isPlace(value) && draft.type && PLACES_BY_TYPE[draft.type].includes(value)) {
+  if (
+    kind === 'place' &&
+    isPlace(value) &&
+    draft.type &&
+    !isServiceType(draft.type) &&
+    PLACES_BY_TYPE[draft.type].includes(value)
+  ) {
     draft.place = value;
     draft.ownerZone = undefined;
     await afterPlace(target, userId, draft);
@@ -1354,7 +1424,7 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
   }
 
   if (
-    /^(rh|type|clar|place|src|own):/.test(payload) ||
+    /^(rh|type|clar|place|src|own|room|water|rooms):/.test(payload) ||
     payload === Action.skipDescription ||
     payload === Action.sendTicket ||
     payload === Action.cancelTicket ||
@@ -1375,6 +1445,12 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
     case Action.report: {
       await answer('Сообщить о проблеме');
       await startReport(target, userId);
+      return;
+    }
+
+    case Action.service: {
+      await answer('Заказать услугу');
+      await startReport(target, userId, { service: true });
       return;
     }
 

@@ -8,7 +8,11 @@ import { TicketScreen } from './screens/TicketScreen';
 import { TicketsScreen } from './screens/TicketsScreen';
 import type { House, Ticket } from './types/domain';
 
-type Screen = { name: 'tickets' } | { name: 'ticket'; id: number } | { name: 'report' } | { name: 'chat' };
+type Screen =
+  | { name: 'tickets' }
+  | { name: 'ticket'; id: number }
+  | { name: 'report'; mode: 'problem' | 'service' }
+  | { name: 'chat' };
 
 type Load = { state: 'loading' } | { state: 'error'; error: ApiError } | { state: 'ready' };
 
@@ -110,7 +114,7 @@ export function App() {
 
   switch (screen.name) {
     case 'report':
-      return <NewTicketScreen houses={houses} onCreate={submit} onClose={toList} />;
+      return <NewTicketScreen houses={houses} mode={screen.mode} onCreate={submit} onClose={toList} />;
     case 'chat':
       return <HouseChatScreen houses={houses} onBack={toList} />;
     case 'ticket': {
@@ -125,7 +129,8 @@ export function App() {
       tickets={tickets}
       houses={houses}
       onOpenTicket={(id) => setScreen({ name: 'ticket', id })}
-      onReport={() => setScreen({ name: 'report' })}
+      onReport={() => setScreen({ name: 'report', mode: 'problem' })}
+      onService={() => setScreen({ name: 'report', mode: 'service' })}
       onHouseChat={() => setScreen({ name: 'chat' })}
     />
   );

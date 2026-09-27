@@ -71,6 +71,20 @@ body {
 /* Тексты Павла приходят с переносами строк — сохраняем их. */
 .multiline { white-space: pre-line; }
 
+/* Экстренный вариант — заявка уходит сразу, без подтверждения (решение 27.09.2026). */
+.urgent-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* Описание жителя: до 4000 символов, бывает без пробелов — переносим где угодно. */
 .description {
   overflow-wrap: anywhere;

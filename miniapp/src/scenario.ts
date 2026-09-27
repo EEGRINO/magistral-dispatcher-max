@@ -24,14 +24,14 @@ export const CLARIFY: Record<ClarifyType, { question: string; options: { label: 
   leak: {
     question: 'Насколько всё серьёзно?',
     options: [
-      { label: '🌊 Сильно течёт, заливает / может залить соседей', outcome: { kind: 'danger', danger: 'flooding_threat' } },
+      { label: '🆘 Сильно течёт, заливает / может залить соседей', outcome: { kind: 'danger', danger: 'flooding_threat' } },
       { label: '💧 Капает или течёт умеренно', outcome: { kind: 'place', detail: 'moderate' } },
     ],
   },
   electricity: {
     question: 'Что именно происходит?',
     options: [
-      { label: '⚠️ Искрит, дымит, пахнет гарью, оголённые провода', outcome: { kind: 'danger', danger: 'exposed_wiring' } },
+      { label: '🆘 Искрит, дымит, пахнет гарью, оголённые провода', outcome: { kind: 'danger', danger: 'exposed_wiring' } },
       { label: 'Нет света во всей квартире / в подъезде / во всём доме', outcome: { kind: 'place', detail: 'outage' } },
       {
         label: 'Не работает одна розетка или выключатель, у соседей свет есть',

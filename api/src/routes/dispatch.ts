@@ -24,6 +24,7 @@ import {
   AdminTicketListResponse,
   ChangeStatusBody,
   ChangeStatusResponse,
+  DEFAULT_TIMEZONE,
   DeliveredResponse,
   ErrorResponse,
   EventIdParams,
@@ -173,17 +174,20 @@ export const dispatchRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async
         organization_name: string | null;
         rule_id: string | null;
         max_chat_id: number;
+        changed_at: Date;
+        timezone: string | null;
       }>(
         `WITH latest AS (
-           SELECT DISTINCT ON (ticket_id) id, ticket_id, new_status
+           SELECT DISTINCT ON (ticket_id) id, ticket_id, new_status, created_at
              FROM ticket_events
             WHERE event_type = 'status_changed'
             ORDER BY ticket_id, id DESC
          )
          SELECT e.id AS event_id, e.ticket_id, e.new_status, t.problem_type, t.rule_id,
-                o.name AS organization_name, r.max_chat_id
+                o.name AS organization_name, r.max_chat_id, e.created_at AS changed_at, h.timezone
            FROM latest e
            JOIN tickets t ON t.id = e.ticket_id
+           LEFT JOIN houses h ON h.id = t.house_id
            JOIN residents r ON r.id = t.resident_id AND r.archived_at IS NULL AND r.max_chat_id IS NOT NULL
            LEFT JOIN organizations o ON o.id = t.assigned_organization_id
           WHERE NOT EXISTS (
@@ -202,6 +206,8 @@ export const dispatchRoutes: FastifyPluginAsyncTypebox<{ rules: Rules }> = async
           new_status: row.new_status,
           problem_type: row.problem_type,
           responsible_name: responsibleName(row),
+          changed_at: row.changed_at.toISOString(),
+          timezone: row.timezone ?? DEFAULT_TIMEZONE,
           max_chat_id: row.max_chat_id,
         })),
       };

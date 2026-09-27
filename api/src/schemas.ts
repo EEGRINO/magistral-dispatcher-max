@@ -300,6 +300,10 @@ export const PendingNotification = Type.Object({
   new_status: TicketStatusValue,
   problem_type: Type.String(),
   responsible_name: Nullable(Type.String()),
+  /** Когда статус сменился — время события status_changed. */
+  changed_at: Type.String({ format: 'date-time' }),
+  /** Часовой пояс дома заявки — по нему бот пишет время; дом неизвестен — Europe/Moscow. */
+  timezone: Type.String(),
   /** Куда писать: диалог жителя с ботом. */
   max_chat_id: Type.Integer(),
 });
@@ -346,6 +350,8 @@ export const Ticket = Type.Object({
   /** Часовой пояс дома заявки (IANA) — для времени подачи в боте; дом неизвестен — Europe/Moscow. */
   timezone: Type.String(),
   status: TicketStatus,
+  /** Когда статус последний раз менялся; null — не менялся с подачи (событие status_changed). */
+  status_changed_at: Nullable(Type.String({ format: 'date-time' })),
   assigned_organization_id: Nullable(Id),
   deadline_at: Nullable(Type.String({ format: 'date-time' })),
   created_at: Type.String({ format: 'date-time' }),
@@ -421,6 +427,7 @@ export interface TicketRow {
   assigned_organization_name: string | null;
   house_timezone: string | null;
   status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
+  status_changed_at: Date | null;
   assigned_organization_id: number | null;
   deadline_at: Date | null;
   created_at: Date;
@@ -457,6 +464,7 @@ export const toTicketDto = (row: TicketRow, route: TicketRouteView): TicketDto =
   deadline_verified: route.deadline_verified,
   timezone: row.house_timezone ?? DEFAULT_TIMEZONE,
   status: row.status,
+  status_changed_at: row.status_changed_at ? row.status_changed_at.toISOString() : null,
   assigned_organization_id: row.assigned_organization_id,
   deadline_at: row.deadline_at ? row.deadline_at.toISOString() : null,
   created_at: row.created_at.toISOString(),

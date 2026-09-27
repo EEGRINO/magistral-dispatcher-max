@@ -292,6 +292,47 @@ rules:
     deadline:
       fix: "срок согласовывается индивидуально — норматив по 416/354/491 не найден, TODO"
 
+  # ── Счётчики и батареи (Игорь, 27.09.2026, по схеме разработчика) — ЧЕРНОВИК, Павлу на сверку ──
+  # Заявка — в УК: опломбировать и ввести прибор учёта в эксплуатацию после
+  # поверки или замены, согласовать замену радиатора. Уточнение — tickets.detail_code:
+  #   счётчики — kitchen_hot / kitchen_cold / bathroom_hot / bathroom_cold (где + ГВС/ХВС);
+  #   батареи  — kitchen или rooms_one … rooms_five_plus (комната + сколько комнат).
+  # Сроков нет: норматив не сверен — жителю ничего не обещаем.
+
+  - id: meter_replacement
+    type: meter_replacement
+    deadline_hours: null  # ЧЕРНОВИК — срок ввода прибора учёта в эксплуатацию не сверен
+    place: [in_apartment]
+    description: "Замена счётчика горячей/холодной воды — опломбировка и ввод в эксплуатацию"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "TODO — сверить срок ввода прибора учёта в эксплуатацию (ПП №354)"
+    source_status: "не сверено"
+
+  - id: meter_verification
+    type: meter_verification
+    deadline_hours: null  # ЧЕРНОВИК — срок не сверен
+    place: [in_apartment]
+    description: "Услуга: поверка счётчика горячей/холодной воды — приём результата, опломбировка"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "TODO — сверить срок (ПП №354)"
+    source_status: "не сверено"
+
+  - id: radiator_replacement
+    type: radiator_replacement
+    deadline_hours: null  # ЧЕРНОВИК — срок согласовывается с жителем
+    place: [in_apartment]
+    description: "Услуга: замена батарей отопления — согласование и отключение стояка"
+    responsible: management_company
+    danger: false
+    deadline:
+      fix: "согласовывается с жителем — норматив не найден, TODO"
+    source_status: "не сверено"
+    note: "Радиатор после отключающей арматуры — имущество собственника; УК нужна для отключения и слива стояка"
+
   - id: other_unsure
     type: other
     deadline_hours: null  # ЧЕРНОВИК (Игорь, 24.09) — ручная классификация — срока нет

@@ -17,7 +17,9 @@ import { toTicketDto, type TicketDto, type TicketRow } from './schemas.js';
 export const TICKET_SELECT = `
   SELECT t.id, t.resident_id, t.house_id, t.problem_type, t.place, t.description, t.detail_code,
          t.rule_id, t.status, t.assigned_organization_id, t.deadline_at, t.created_at, t.updated_at,
-         o.name AS assigned_organization_name, h.timezone AS house_timezone
+         o.name AS assigned_organization_name, h.timezone AS house_timezone,
+         (SELECT max(e.created_at) FROM ticket_events e
+           WHERE e.ticket_id = t.id AND e.event_type = 'status_changed') AS status_changed_at
     FROM tickets t
     LEFT JOIN organizations o ON o.id = t.assigned_organization_id
     LEFT JOIN houses h ON h.id = t.house_id`;

@@ -5,7 +5,23 @@
  */
 import { config } from './config.js';
 import type { DangerType } from './emergency.js';
-import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, type OwnerZone, type ProblemType } from './report.js';
+import {
+  PLACES,
+  PLACES_BY_TYPE,
+  PROBLEM_TYPES,
+  ROOMS,
+  ROOMS_BY_TYPE,
+  ROOM_COUNTS,
+  SERVICE_TYPES,
+  WATER,
+  type OwnerZone,
+  type ProblemType,
+  type Room,
+  type RoomCount,
+  type ServiceType,
+  type TicketType,
+  type Water,
+} from './report.js';
 import type { MaxAttachment } from './max-api.js';
 
 /** payload кнопок callback — по ним бот понимает, что нажато. */
@@ -13,6 +29,8 @@ export const Action = {
   houseChat: 'menu:house_chat',
   cancelAddress: 'address:cancel',
   report: 'menu:report',
+  /** «Заказать услугу» — поверка счётчика, замена батарей. */
+  service: 'menu:service',
   tickets: 'menu:tickets',
   /** «Нет, всё в порядке» после подозрения на опасность по словам. */
   dismissDanger: 'danger:dismiss',
@@ -36,7 +54,7 @@ export const Action = {
  * Шаги заявки: type:<код>, clar:<ответ>, place:<код>, src:<откуда течёт>,
  * own:<ok|send|alt> — экран зоны собственника.
  */
-export const typeAction = (type: ProblemType): string => `type:${type}`;
+export const typeAction = (type: ProblemType | ServiceType): string => `type:${type}`;
 export const placeAction = (place: keyof typeof PLACES): string => `place:${place}`;
 
 /** Подтверждение опасности, заподозренной по словам: danger_confirm:<тип>. */
@@ -74,6 +92,7 @@ function menuRows(botUsername: string | null): Button[][] {
   return [
     ...appRow(botUsername),
     callback('Сообщить о проблеме в чате', Action.report),
+    callback('Заказать услугу', Action.service),
     callback('Мои заявки', Action.tickets),
     callback('Чат дома', Action.houseChat),
   ];
@@ -174,8 +193,9 @@ export function reportHouseKeyboard(houses: { id: number; address: string }[]): 
 export function typeKeyboard(hasGas: boolean, withBack = false): MaxAttachment[] {
   const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => hasGas || type !== 'gas');
   // На первом шаге только «Отмена»: «Назад» делал бы то же самое — вернул в меню.
+  // Газ — сразу экстренная заявка без подтверждения: помечаем 🆘, как в тексте вопроса.
   return keyboard([
-    ...types.map((type) => callback(PROBLEM_TYPES[type], typeAction(type))),
+    ...types.map((type) => callback(type === 'gas' ? '🆘 Запах газа' : PROBLEM_TYPES[type], typeAction(type))),
     ...(withBack ? [backRow] : []),
     cancelTicketRow,
   ]);
@@ -184,11 +204,12 @@ export function typeKeyboard(hasGas: boolean, withBack = false): MaxAttachment[]
 /** Уточнение после типа — кнопки ведут в опасность, в зону собственника или дальше. */
 const CLARIFY_BUTTONS: Record<'leak' | 'electricity' | 'elevator' | 'blockage', [string, string][]> = {
   leak: [
-    ['🌊 Сильно течёт, заливает / может залить соседей', 'clar:severe'],
+    // 🆘 — экстренная заявка уходит сразу, без подтверждения (плашка в тексте вопроса).
+    ['🆘 Сильно течёт, заливает / может залить соседей', 'clar:severe'],
     ['💧 Капает или течёт умеренно', 'clar:moderate'],
   ],
   electricity: [
-    ['⚠️ Искрит, дымит, пахнет гарью, оголённые провода', 'clar:sparking'],
+    ['🆘 Искрит, дымит, пахнет гарью, оголённые провода', 'clar:sparking'],
     ['Нет света во всей квартире / в подъезде / во всём доме', 'clar:outage'],
     ['Не работает одна розетка или выключатель, у соседей свет есть', 'clar:one_socket'],
   ],
@@ -237,6 +258,38 @@ export function ownerZoneKeyboard(zone: OwnerZone): MaxAttachment[] {
     backRow,
   ]);
 }
+
+/** «Что за услуга?» — вместо «Что случилось?» после «Заказать услугу». */
+export function serviceKeyboard(withBack = false): MaxAttachment[] {
+  return keyboard([
+    ...(Object.keys(SERVICE_TYPES) as ServiceType[]).map((type) => callback(SERVICE_TYPES[type], typeAction(type))),
+    ...(withBack ? [backRow] : []),
+    cancelTicketRow,
+  ]);
+}
+
+/** «Где в квартире?» — room:<помещение>. */
+export function roomKeyboard(type: TicketType): MaxAttachment[] {
+  return keyboard([
+    ...(ROOMS_BY_TYPE[type] ?? []).map((room) => callback(ROOMS[room], `room:${room}`)),
+    backRow,
+    cancelTicketRow,
+  ]);
+}
+
+/** «Какой счётчик?» — water:hot / water:cold. */
+export const waterKeyboard: MaxAttachment[] = keyboard([
+  ...(Object.keys(WATER) as Water[]).map((water) => callback(WATER[water], `water:${water}`)),
+  backRow,
+  cancelTicketRow,
+]);
+
+/** «Сколько комнат?» — rooms:<число словом>, в один ряд: кнопки короткие. */
+export const roomsCountKeyboard: MaxAttachment[] = keyboard([
+  (Object.keys(ROOM_COUNTS) as RoomCount[]).flatMap((count) => callback(ROOM_COUNTS[count], `rooms:${count}`)),
+  backRow,
+  cancelTicketRow,
+]);
 
 export const descriptionKeyboard: MaxAttachment[] = keyboard([
   callback('Без описания', Action.skipDescription),

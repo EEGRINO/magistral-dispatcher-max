@@ -14,9 +14,56 @@ export const PROBLEM_TYPES = {
   common_area: '🏢 Подъезд / двор',
   structural: '🪟 Окна / двери / кровля',
   pests: '🐜 Насекомые / грызуны',
+  meter_replacement: '🔢 Замена счётчиков ГВС/ХВС',
   other: '❓ Другое / не уверен',
 } as const;
 export type ProblemType = keyof typeof PROBLEM_TYPES;
+
+/** Услуги — «Заказать услугу» (схема разработчика, 27.09.2026), как у бота. */
+export const SERVICE_TYPES = {
+  meter_verification: '🔎 Поверка счётчика ХВС/ГВС',
+  radiator_replacement: '♨️ Замена батарей отопления',
+} as const;
+export type ServiceType = keyof typeof SERVICE_TYPES;
+
+/** Тип заявки из формы: проблема (кроме газа — он сразу авария) или услуга. */
+export type TicketType = Exclude<ProblemType, 'gas'> | ServiceType;
+
+export const isServiceType = (value: string): value is ServiceType => value in SERVICE_TYPES;
+
+export const ticketTypeLabel = (type: TicketType): string =>
+  isServiceType(type) ? SERVICE_TYPES[type] : PROBLEM_TYPES[type];
+
+/** Где в квартире: счётчики — кухня или ванная, батареи — кухня или комната. */
+export const ROOMS = { kitchen: '🍳 Кухня', bathroom: '🛁 Ванная комната', room: '🛏️ Комната' } as const;
+export type Room = keyof typeof ROOMS;
+
+export const ROOMS_BY_TYPE: Partial<Record<TicketType, Room[]>> = {
+  meter_replacement: ['kitchen', 'bathroom'],
+  meter_verification: ['kitchen', 'bathroom'],
+  radiator_replacement: ['kitchen', 'room'],
+};
+
+export const isMeterType = (type: TicketType | undefined): boolean =>
+  type === 'meter_replacement' || type === 'meter_verification';
+
+export const WATER = { hot: '🔴 ГВС — горячая вода', cold: '🔵 ХВС — холодная вода' } as const;
+export type Water = keyof typeof WATER;
+
+/** Сколько комнат — словами: detail_code в api только из латинских букв и «_». */
+export const ROOM_COUNTS = { one: '1', two: '2', three: '3', four: '4', five_plus: '5 и больше' } as const;
+export type RoomCount = keyof typeof ROOM_COUNTS;
+
+/** Подпись уточнения по detail_code: «Кухня, ГВС», «Комната, комнат: 2»; остальные коды — null. */
+export function detailLabel(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const water = /^(kitchen|bathroom)_(hot|cold)$/.exec(code);
+  if (water) return `${water[1] === 'kitchen' ? 'Кухня' : 'Ванная комната'}, ${water[2] === 'hot' ? 'ГВС' : 'ХВС'}`;
+  if (code === 'kitchen') return 'Кухня';
+  const rooms = /^rooms_(one|two|three|four|five_plus)$/.exec(code);
+  if (rooms) return `Комната, комнат: ${ROOM_COUNTS[rooms[1] as RoomCount]}`;
+  return null;
+}
 
 export const PLACES = {
   in_apartment: '🏠 У меня в квартире',
@@ -36,6 +83,7 @@ export const PLACES_BY_TYPE: Record<Exclude<ProblemType, 'gas'>, Place[]> = {
   common_area: ['entrance', 'street'],
   structural: ['in_apartment', 'entrance', 'whole_house'],
   pests: ['in_apartment', 'entrance', 'whole_house'],
+  meter_replacement: ['in_apartment'],
   other: ['in_apartment', 'entrance', 'whole_house', 'street'],
 };
 
@@ -68,6 +116,10 @@ export interface Ticket {
   place: string | null;
   description: string | null;
   status: TicketStatus;
+  /** Когда статус последний раз менялся; null — не менялся с подачи. */
+  status_changed_at: string | null;
+  /** Ответ на уточнение: kitchen_hot, rooms_two… — подпись в detailLabel. */
+  detail_code: string | null;
   created_at: string;
   responsible_name: string | null;
   deadline_at: string | null;
@@ -90,6 +142,7 @@ export const isEmergency = (problemType: string): boolean => problemType in DANG
 /** «Что случилось» по коду; незнакомый код — как есть. */
 export function problemLabel(problemType: string): string {
   if (problemType in PROBLEM_TYPES) return PROBLEM_TYPES[problemType as ProblemType];
+  if (isServiceType(problemType)) return SERVICE_TYPES[problemType];
   if (problemType in DANGER_TYPES) return DANGER_TYPES[problemType as DangerType];
   return problemType;
 }

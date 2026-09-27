@@ -3,7 +3,10 @@
 Сервис `api` диспетчера обращений. Документ описывает **реально работающие**
 эндпоинты, а не план: всё перечисленное ниже проверено запросами.
 
-Версия контракта: **0.13 от 26.09.2026** — несколько квартир у жителя (миграция
+Версия контракта: **0.14 от 27.09.2026** — у `Ticket` поле `status_changed_at` (когда
+статус менялся последний раз), у уведомления — `changed_at` и `timezone`; новые коды
+заявок: `meter_replacement` (проблема), услуги `meter_verification` и
+`radiator_replacement`. Не ломающее. 0.13 — 26.09.2026: несколько квартир у жителя (миграция
 `0009`, таблица `resident_premises`): `GET /residents/:id/houses`, у `POST /tickets` и
 `POST /app/tickets` поле `house_id`, у `/app/me` поле `houses`, у `AdminResident` —
 `premises_count`; коды ошибок `house_required`, `house_not_linked`. **Ломающее для
@@ -502,12 +505,15 @@ api и при правке таблицы `tickets` напрямую (pgAdmin) �
 
 ```json
 { "notifications": [ { "event_id": 7, "ticket_id": 1, "new_status": "in_progress",
-  "problem_type": "heating", "responsible_name": "АО «Теплосеть»", "max_chat_id": 516093921 } ] }
+  "problem_type": "heating", "responsible_name": "АО «Теплосеть»",
+  "changed_at": "2026-09-27T07:22:10.114Z", "timezone": "Europe/Moscow", "max_chat_id": 516093921 } ] }
 ```
 
 - Берётся только **последняя** смена статуса каждой заявки: две смены подряд
   (в работе → решена) дают одно уведомление «решена», а не устаревшее «в работе».
 - Недоставленное — если после события нет `notified`.
+- `changed_at` — время смены статуса (событие `status_changed`), `timezone` — пояс
+  дома заявки: бот пишет «Статус изменён: дд.мм.гггг, чч:мм» по нему (0.14).
 - Жители без привязки к MAX (не входили, в архиве) не попадают: писать некуда.
 
 ### `POST /notifications/:event_id/delivered`
@@ -576,7 +582,12 @@ api и при правке таблицы `tickets` напрямую (pgAdmin) �
 
 - обычная заявка: `problem_type` — тип (`type` в правилах): `leak`, `blockage`,
   `heating`, `electricity`, `elevator`, `common_area`, `structural`, `pests`,
-  `other`; `place` — `in_apartment`, `entrance`, `whole_house`, `street`;
+  `meter_replacement`, `other`; `place` — `in_apartment`, `entrance`, `whole_house`, `street`;
+- услуга («Заказать услугу», 0.14): `problem_type` — `meter_verification` (поверка
+  счётчика), `radiator_replacement` (замена батарей); `place` — `in_apartment`;
+- счётчики и батареи — `detail_code`: `kitchen_hot`, `kitchen_cold`, `bathroom_hot`,
+  `bathroom_cold` (помещение + ГВС/ХВС); `kitchen` или `rooms_one` … `rooms_five_plus`
+  (батарея на кухне / в комнате и сколько комнат);
 - аварийная заявка: `problem_type` — код опасности (`danger_types` в правилах):
   `gas_smell`, `exposed_wiring`, `flooding_threat`, `elevator_entrapment`;
   `place` — `null`. Приоритет «экстренная» = `problem_type` из этого списка,
@@ -650,7 +661,8 @@ api и при правке таблицы `tickets` напрямую (pgAdmin) �
 | `rule_id` | string | да | правило `config/rules.yaml`, по которому направлена; `null` — заявка до маршрутизации |
 | `responsible_name` | string | да | кто отвечает — для жителя: название организации дома или службы («аварийная газовая служба (104)»); `null` — назначить некого |
 | `deadline_verified` | boolean | нет | срок правила сверен с первоисточником (`deadline_verified: true` в `rules.yaml`). `false` — `deadline_at` жителю **не показывать** |
-| `status` | string | нет | `"new"` \| `"in_progress"` \| `"resolved"` |
+| `status` | string | нет | `"new"` \| `"in_progress"` \| `"resolved"` \| `"cancelled"` |
+| `status_changed_at` | string | да | когда статус менялся последний раз (событие `status_changed`), ISO 8601; `null` — не менялся с подачи (0.14) |
 | `assigned_organization_id` | number | да | исполнитель по правилу; `null` — городская служба, зона собственника или дом неизвестен |
 | `deadline_at` | string | да | срок по нормативу, ISO 8601; `null` — в правиле нет числа |
 | `created_at` | string | нет | ISO 8601 |

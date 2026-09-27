@@ -7,7 +7,7 @@
  *   «12», «№12» (вне сценария заявки)      → одна заявка: ответ на «отправьте номер»
  */
 import type { DangerType } from './emergency.js';
-import { PROBLEM_TYPES, isProblemType } from './report.js';
+import { PROBLEM_TYPES, SERVICE_TYPES, isProblemType, isServiceType } from './report.js';
 
 export type StatusCommand = { kind: 'list' } | { kind: 'one'; ticketId: number };
 
@@ -50,6 +50,7 @@ export const isEmergency = (problemType: string): boolean => problemType in DANG
 /** «Что случилось» по коду заявки; незнакомый код (заявка из старой версии) — как есть. */
 export function problemLabel(problemType: string): string {
   if (isProblemType(problemType)) return PROBLEM_TYPES[problemType];
+  if (isServiceType(problemType)) return SERVICE_TYPES[problemType];
   if (problemType in DANGER_LABELS) return DANGER_LABELS[problemType as DangerType];
   return problemType;
 }

@@ -13,13 +13,42 @@ import {
   type TicketDraft,
 } from '../scenario';
 import { Description } from '../components/Description';
-import type { DangerType, House, Place, ProblemType, Ticket } from '../types/domain';
-import { PLACES, PLACES_BY_TYPE, PROBLEM_TYPES, TICKET_STATUS_LABEL } from '../types/domain';
+import type {
+  DangerType,
+  House,
+  Place,
+  ProblemType,
+  Room,
+  RoomCount,
+  ServiceType,
+  Ticket,
+  TicketType,
+  Water,
+} from '../types/domain';
+import {
+  PLACES,
+  PLACES_BY_TYPE,
+  PROBLEM_TYPES,
+  ROOMS,
+  ROOMS_BY_TYPE,
+  ROOM_COUNTS,
+  SERVICE_TYPES,
+  TICKET_STATUS_LABEL,
+  WATER,
+  detailLabel,
+  isMeterType,
+  isServiceType,
+  ticketTypeLabel,
+} from '../types/domain';
 
 type Step =
   /** Первый шаг, только если у жителя квартиры в нескольких домах (кейс 10 чек-листа). */
   | { name: 'house' }
   | { name: 'type' }
+  /** Счётчики и батареи: где в квартире → ГВС/ХВС или сколько комнат (27.09.2026). */
+  | { name: 'room' }
+  | { name: 'water' }
+  | { name: 'rooms_count' }
   | { name: 'clarify'; type: ClarifyType }
   | { name: 'place'; type: Exclude<ProblemType, 'gas'> }
   | { name: 'leak_source' }
@@ -32,8 +61,9 @@ type Step =
 
 /** Ответы жителя по ходу сценария — как черновик заявки у бота. */
 interface Answers {
-  type?: Exclude<ProblemType, 'gas'>;
+  type?: TicketType;
   place?: Place;
+  room?: Room;
   detail?: string;
   description?: string | null;
 }
@@ -41,12 +71,15 @@ interface Answers {
 interface NewTicketScreenProps {
   /** Дома жителя; несколько — сначала «В каком доме проблема?». */
   houses: House[];
+  /** service — «Заказать услугу»: первым шагом список услуг, а не проблем. */
+  mode?: 'problem' | 'service';
   /** Регистрирует заявку в api и возвращает её с номером. */
   onCreate: (draft: TicketDraft) => Promise<Ticket>;
   onClose: () => void;
 }
 
-export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenProps) {
+export function NewTicketScreen({ houses, mode = 'problem', onCreate, onClose }: NewTicketScreenProps) {
+  const service = mode === 'service';
   const manyHouses = houses.length > 1;
   const [step, setStep] = useState<Step>(manyHouses ? { name: 'house' } : { name: 'type' });
   /** Дом заявки: единственный или выбранный на первом шаге; null — неизвестен. */
@@ -115,11 +148,17 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
     go({ name: 'place', type: next.type }, next);
   }
 
-  function chooseType(type: ProblemType) {
+  function chooseType(type: ProblemType | ServiceType) {
     if (type === 'gas') {
       toDanger('gas_smell');
       return;
     }
+    // Счётчики и батареи — в квартире: место не спрашиваем, дальше «где в квартире?».
+    if (ROOMS_BY_TYPE[type]) {
+      go({ name: 'room' }, { type, place: 'in_apartment' });
+      return;
+    }
+    if (isServiceType(type)) return; // у каждой услуги есть шаг «где»
     // Житель передумал с типом — прежние ответы сбрасываются.
     const next = { type };
     if (isClarifyType(type)) {
@@ -130,7 +169,8 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
   }
 
   function chooseClarify(outcome: ClarifyOutcome) {
-    const type = answers.type!;
+    // Уточнение бывает только у проблем (протечка, электричество, лифт, засор).
+    const type = answers.type as ClarifyType;
     switch (outcome.kind) {
       case 'danger':
         toDanger(outcome.danger);
@@ -162,6 +202,17 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
     } else {
       // Течёт сам кран или он не перекрывается — это уже общее имущество.
       go({ name: 'description' }, { ...answers, detail: 'valve' });
+    }
+  }
+
+  /** «Где в квартире?»: счётчик — дальше ГВС/ХВС; батарея: кухня — к описанию, комната — «сколько?». */
+  function chooseRoom(room: Room) {
+    if (isMeterType(answers.type)) {
+      go({ name: 'water' }, { ...answers, room });
+    } else if (room === 'room') {
+      go({ name: 'rooms_count' }, { ...answers, room });
+    } else {
+      go({ name: 'description' }, { ...answers, room, detail: room });
     }
   }
 
@@ -197,7 +248,7 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
     case 'house':
       return (
         // Первый шаг — только «Отмена».
-        <Question title="В каком доме проблема?" onCancel={onClose}>
+        <Question title={service ? 'Для какого дома услуга?' : 'В каком доме проблема?'} onCancel={onClose}>
           {houses.map((option) => (
             <Option
               key={option.id}
@@ -212,26 +263,97 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
       );
 
     case 'type': {
+      if (service) {
+        return (
+          <Question title="Какая услуга нужна?" onCancel={onClose} onBack={manyHouses ? back : undefined}>
+            {(Object.keys(SERVICE_TYPES) as ServiceType[]).map((type) => (
+              <Option key={type} label={SERVICE_TYPES[type]} onClick={() => chooseType(type)} />
+            ))}
+          </Question>
+        );
+      }
       // Дому без газа кнопку «Запах газа» не показываем; дом неизвестен — показываем.
       const types = (Object.keys(PROBLEM_TYPES) as ProblemType[]).filter((type) => house?.has_gas !== false || type !== 'gas');
+      const hasGas = types.includes('gas');
       return (
         // Первый шаг — только «Отмена» («Назад» закрыл бы форму так же); после выбора дома — и «Назад».
-        <Question title="Выберите, что случилось:" onCancel={onClose} onBack={manyHouses ? back : undefined}>
+        <Question
+          title="Выберите, что случилось:"
+          onCancel={onClose}
+          onBack={manyHouses ? back : undefined}
+          note={hasGas ? EMERGENCY_NOTE : undefined}
+        >
           {types.map((type) => (
-            <Option key={type} label={PROBLEM_TYPES[type]} onClick={() => chooseType(type)} />
+            <Option
+              key={type}
+              label={type === 'gas' ? '🆘 Запах газа' : PROBLEM_TYPES[type]}
+              urgent={type === 'gas'}
+              onClick={() => chooseType(type)}
+            />
           ))}
         </Question>
       );
     }
 
-    case 'clarify':
+    case 'room':
       return (
-        <Question title={CLARIFY[step.type].question} onCancel={onClose} onBack={back}>
-          {CLARIFY[step.type].options.map((option) => (
-            <Option key={option.label} label={option.label} onClick={() => chooseClarify(option.outcome)} />
+        <Question
+          title={answers.type === 'radiator_replacement' ? 'Где заменить батарею?' : 'Где установлен счётчик?'}
+          onCancel={onClose}
+          onBack={back}
+        >
+          {(answers.type ? (ROOMS_BY_TYPE[answers.type] ?? []) : []).map((room) => (
+            <Option key={room} label={ROOMS[room]} onClick={() => chooseRoom(room)} />
           ))}
         </Question>
       );
+
+    case 'water':
+      return (
+        <Question title="Какой счётчик?" onCancel={onClose} onBack={back}>
+          {(Object.keys(WATER) as Water[]).map((water) => (
+            <Option
+              key={water}
+              label={WATER[water]}
+              onClick={() => go({ name: 'description' }, { ...answers, detail: `${answers.room}_${water}` })}
+            />
+          ))}
+        </Question>
+      );
+
+    case 'rooms_count':
+      return (
+        <Question title="Сколько комнат?" onCancel={onClose} onBack={back}>
+          {(Object.keys(ROOM_COUNTS) as RoomCount[]).map((count) => (
+            <Option
+              key={count}
+              label={ROOM_COUNTS[count]}
+              onClick={() => go({ name: 'description' }, { ...answers, detail: `rooms_${count}` })}
+            />
+          ))}
+        </Question>
+      );
+
+    case 'clarify': {
+      const urgentHere = CLARIFY[step.type].options.some((option) => option.outcome.kind === 'danger');
+      return (
+        <Question
+          title={CLARIFY[step.type].question}
+          onCancel={onClose}
+          onBack={back}
+          note={urgentHere ? EMERGENCY_NOTE : undefined}
+        >
+          {CLARIFY[step.type].options.map((option) => (
+            <Option
+              key={option.label}
+              label={option.label}
+              urgent={option.outcome.kind === 'danger'}
+              onClick={() => chooseClarify(option.outcome)}
+            />
+          ))}
+        </Question>
+      );
+    }
 
     case 'place':
       return (
@@ -315,9 +437,11 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
           }
         >
           <Container>
-            <Typography.Title>Опишите проблему</Typography.Title>
+            <Typography.Title>{service ? 'Комментарий к заявке' : 'Опишите проблему'}</Typography.Title>
             <Typography.Body className="muted">
-              Например: «Не работает кран горячей воды на кухне». Можно и без описания.
+              {service
+                ? 'Например, удобное время для визита. Можно и без комментария.'
+                : 'Например: «Не работает кран горячей воды на кухне». Можно и без описания.'}
             </Typography.Body>
           </Container>
           <Container>
@@ -348,8 +472,9 @@ export function NewTicketScreen({ houses, onCreate, onClose }: NewTicketScreenPr
           </Container>
           {sendError && <div className="notice notice--danger multiline">{sendError}. Попробуйте ещё раз.</div>}
           <CellList mode="island">
-            <CellSimple overline="Что" title={PROBLEM_TYPES[answers.type!]} />
+            <CellSimple overline={service ? 'Услуга' : 'Что'} title={ticketTypeLabel(answers.type!)} />
             {answers.place && <CellSimple overline="Где" title={PLACES[answers.place]} />}
+            {detailLabel(answers.detail) && <CellSimple overline="Уточнение" title={detailLabel(answers.detail)} />}
             <CellSimple overline="Адрес" title={house?.address ?? 'дом не указан — УК уточнит'} />
             {!answers.description && <CellSimple overline="Описание" title="—" />}
           </CellList>
@@ -430,12 +555,15 @@ function Question({
   children,
   onCancel,
   onBack,
+  note,
 }: {
   title: string;
   children: ReactNode;
   onCancel: () => void;
   /** Нет — первый шаг: там только «Отмена». */
   onBack?: () => void;
+  /** Плашка над вариантами — например, что экстренные уходят без подтверждения. */
+  note?: ReactNode;
 }) {
   return (
     <Page
@@ -455,13 +583,29 @@ function Question({
       <Container>
         <Typography.Title>{title}</Typography.Title>
       </Container>
+      {note && <div className="notice notice--danger multiline">{note}</div>}
       <CellList mode="island">{children}</CellList>
     </Page>
   );
 }
 
-function Option({ label, onClick }: { label: string; onClick: () => void }) {
-  return <CellSimple title={label} showChevron onClick={onClick} />;
+/**
+ * Плашка над экстренными вариантами: заявка уходит сразу, без шага
+ * подтверждения — житель должен знать это до нажатия (решение 27.09.2026).
+ */
+const EMERGENCY_NOTE = '🆘 Отмеченные варианты — экстренная заявка: уходит диспетчеру сразу, без подтверждения.';
+
+/** urgent — экстренный вариант: бейдж «без подтверждения». */
+function Option({ label, urgent = false, onClick }: { label: string; urgent?: boolean; onClick: () => void }) {
+  const title = urgent ? (
+    <>
+      {label}
+      <span className="urgent-badge">без подтверждения</span>
+    </>
+  ) : (
+    label
+  );
+  return <CellSimple title={title} showChevron onClick={onClick} />;
 }
 
 /** «Заявка зарегистрирована» — номер, статус, приоритет и ответственный, если он уже есть. */

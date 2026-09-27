@@ -7,7 +7,16 @@
 
 import type { DangerType } from './emergency.js';
 import { previewDescription } from './text.js';
-import { PLACES, PROBLEM_TYPES, isPlace, type OwnerZone, type Place, type ProblemType } from './report.js';
+import {
+  PLACES,
+  detailLabel,
+  isPlace,
+  isServiceType,
+  ticketTypeLabel,
+  type OwnerZone,
+  type Place,
+  type TicketType,
+} from './report.js';
 import { STATUS_LABELS, isEmergency, problemLabel, type TicketStatus } from './status.js';
 
 /**
@@ -48,6 +57,9 @@ export interface TicketView {
   deadline_at: string | null;
   deadline_verified: boolean;
   timezone: string;
+  /** Когда статус последний раз менялся; null — не менялся с подачи. */
+  status_changed_at?: string | null;
+  detail_code?: string | null;
 }
 
 /** «Осталось»: часы до двух суток, дальше — сутки. */
@@ -75,6 +87,12 @@ function routeLines(t: Pick<TicketView, 'responsible_name' | 'deadline_at' | 'de
 /** Строка списка: «№3 — 💧 Протечка / потоп, принята · 26.09.2026, 17:34». */
 const ticketLine = (t: TicketView): string =>
   `№${t.id} — ${problemLabel(t.problem_type)}, ${STATUS_LABELS[t.status]} · ${formatCreated(t.created_at, t.timezone)}`;
+
+/**
+ * Плашка над экстренными кнопками: они отправляют заявку сразу, без шага
+ * подтверждения — житель должен знать это до нажатия (решение 27.09.2026).
+ */
+const EMERGENCY_NOTE = '🆘 — экстренная заявка: уходит диспетчеру сразу, без подтверждения.';
 
 /** Сколько строк в списке «несколько активных заявок». */
 const LIST_LIMIT = 10;
@@ -323,16 +341,27 @@ export const messages = {
 
   // ── обычная заявка (тексты Павла, 23–24.09.2026) ─────────────────────
 
-  askType: 'Выберите, что случилось:',
+  /** hasGas — есть кнопка «Запах газа»: под вопросом плашка про 🆘. */
+  askType: (hasGas: boolean): string => 'Выберите, что случилось:' + (hasGas ? `\n${EMERGENCY_NOTE}` : ''),
 
   askClarify: (type: 'leak' | 'electricity' | 'elevator' | 'blockage'): string =>
     ({
-      leak: 'Насколько всё серьёзно?',
-      electricity: 'Что именно происходит?',
-      elevator: 'Внутри кабины кто-то есть?',
+      leak: `Насколько всё серьёзно?\n${EMERGENCY_NOTE}`,
+      electricity: `Что именно происходит?\n${EMERGENCY_NOTE}`,
+      elevator: `Внутри кабины кто-то есть?\n${EMERGENCY_NOTE}`,
       // TODO(Павел): черновик Игоря.
       blockage: 'Что засорилось?',
     })[type],
+
+  // ── услуги и счётчики (схема разработчика, 27.09.2026) ──
+  askService: 'Какая услуга нужна?',
+  askRoom: (type: TicketType): string =>
+    type === 'radiator_replacement' ? 'Где заменить батарею?' : 'Где установлен счётчик?',
+  askWater: 'Какой счётчик?',
+  askRoomsCount: 'Сколько комнат?',
+  askServiceComment:
+    'Добавьте комментарий одним сообщением — например, удобное время для визита. ' +
+    'Или нажмите «Без описания».',
 
   askPlace: 'Уточните, где именно:',
 
@@ -363,10 +392,17 @@ export const messages = {
     'Опишите проблему одним сообщением, например: «Не работает кран горячей воды на кухне». ' +
     'Или нажмите «Без описания».',
 
-  confirmTicket: (d: { type: ProblemType; place?: Place; address: string | null; description: string | null }): string =>
+  confirmTicket: (d: {
+    type: TicketType;
+    place?: Place;
+    detail?: string;
+    address: string | null;
+    description: string | null;
+  }): string =>
     'Проверьте заявку:\n' +
-    `Что: ${PROBLEM_TYPES[d.type]}\n` +
+    `${isServiceType(d.type) ? 'Услуга' : 'Что'}: ${ticketTypeLabel(d.type)}\n` +
     (d.place ? `Где: ${PLACES[d.place]}\n` : '') +
+    (detailLabel(d.detail) ? `Уточнение: ${detailLabel(d.detail)}\n` : '') +
     `Адрес: ${d.address ?? 'дом не указан — УК уточнит'}\n` +
     `Описание: ${d.description ? previewDescription(d.description) : '—'}`,
 
@@ -399,8 +435,15 @@ export const messages = {
 
   // TODO(Павел): черновик Игоря — у Павла текстов смены статуса нет.
   /** Уведомление о смене статуса — бот шлёт сам, без запроса жителя. */
-  statusChanged: (n: { ticket_id: number; new_status: TicketStatus; problem_type: string; responsible_name: string | null }): string => {
-    const what = `Что: ${problemLabel(n.problem_type)}\n`;
+  statusChanged: (n: {
+    ticket_id: number;
+    new_status: TicketStatus;
+    problem_type: string;
+    responsible_name: string | null;
+    changed_at: string;
+    timezone: string;
+  }): string => {
+    const what = `Что: ${problemLabel(n.problem_type)}\nСтатус изменён: ${formatCreated(n.changed_at, n.timezone)}\n`;
     const who = n.responsible_name ? `Ответственный: ${n.responsible_name}\n` : '';
     switch (n.new_status) {
       case 'in_progress':
@@ -424,9 +467,11 @@ export const messages = {
   ticketDetails: (t: TicketView): string =>
     `Заявка №${t.id}\n\n` +
     `Статус: ${STATUS_LABELS[t.status]}\n` +
+    (t.status_changed_at ? `Статус изменён: ${formatCreated(t.status_changed_at, t.timezone)}\n` : '') +
     (isEmergency(t.problem_type) ? 'Приоритет: экстренная\n' : '') +
     routeLines(t) +
     `Что: ${problemLabel(t.problem_type)}\n` +
+    (detailLabel(t.detail_code) ? `Уточнение: ${detailLabel(t.detail_code)}\n` : '') +
     (t.place && isPlace(t.place) ? `Где: ${PLACES[t.place]}\n` : '') +
     `Подана: ${formatCreated(t.created_at, t.timezone)}` +
     (t.description ? `\nОписание: ${previewDescription(t.description)}` : ''),
@@ -453,9 +498,9 @@ export const messages = {
   emergencyHouseCancelled: 'Хорошо, заявку не отправляю. Если станет опасно — звоните 112.',
 
   /** «Сообщить о проблеме», а прежняя заявка не дописана (кейс 7 чек-листа). */
-  draftResume: (type: ProblemType | undefined): string =>
+  draftResume: (type: TicketType | undefined): string =>
     'У вас есть незаконченная заявка' +
-    (type ? `: ${PROBLEM_TYPES[type]}` : '') +
+    (type ? `: ${ticketTypeLabel(type)}` : '') +
     '.\nПродолжить с того же места или начать заново?',
 
   /** Текст там, где ждём кнопку: напоминаем и повторяем вопрос. */

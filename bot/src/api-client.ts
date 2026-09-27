@@ -55,6 +55,10 @@ export interface Ticket {
   /** Срок сверен с первоисточником — только тогда его можно показать жителю. */
   deadline_verified: boolean;
   status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
+  /** Когда статус последний раз менялся; null — не менялся с подачи. */
+  status_changed_at: string | null;
+  /** Ответ на уточнение: kitchen_hot, rooms_two… — подпись в detailLabel. */
+  detail_code: string | null;
   /** Часовой пояс дома заявки — время подачи показываем по нему. */
   timezone: string;
   created_at: string;
@@ -77,6 +81,9 @@ export interface PendingNotification {
   new_status: 'new' | 'in_progress' | 'resolved' | 'cancelled';
   problem_type: string;
   responsible_name: string | null;
+  /** Когда сменился статус и в каком поясе это показывать. */
+  changed_at: string;
+  timezone: string;
   max_chat_id: number;
 }
 

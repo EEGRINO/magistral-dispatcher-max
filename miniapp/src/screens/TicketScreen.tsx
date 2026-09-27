@@ -3,7 +3,7 @@ import { Button, CellList, CellSimple, Container, Panel, Typography } from '@max
 import { StatusBadge } from '../components/TicketCard';
 import { Description } from '../components/Description';
 import type { Ticket } from '../types/domain';
-import { formatCreated, isActive, isEmergency, placeLabel, problemLabel } from '../types/domain';
+import { detailLabel, formatCreated, isActive, isEmergency, placeLabel, problemLabel } from '../types/domain';
 
 /** «Осталось»: часы до двух суток, дальше — сутки (как у бота). */
 function timeLeft(deadlineIso: string): string {
@@ -40,6 +40,7 @@ export function TicketScreen({ ticket, onBack, onCancel }: TicketScreenProps) {
   }
 
   const rows: [string, ReactNode][] = [['Статус', <StatusBadge status={ticket.status} />]];
+  if (ticket.status_changed_at) rows.push(['Статус изменён', formatCreated(ticket.status_changed_at)]);
 
   if (isEmergency(ticket.problem_type)) rows.push(['Приоритет', 'экстренная']);
   if (ticket.responsible_name) rows.push(['Ответственный', ticket.responsible_name]);
@@ -48,6 +49,8 @@ export function TicketScreen({ ticket, onBack, onCancel }: TicketScreenProps) {
     rows.push(['Осталось по нормативному сроку', timeLeft(ticket.deadline_at)]);
   }
   rows.push(['Что', problemLabel(ticket.problem_type)]);
+  const detail = detailLabel(ticket.detail_code);
+  if (detail) rows.push(['Уточнение', detail]);
   const place = placeLabel(ticket.place);
   if (place) rows.push(['Где', place]);
   rows.push(['Подана', formatCreated(ticket.created_at)]);

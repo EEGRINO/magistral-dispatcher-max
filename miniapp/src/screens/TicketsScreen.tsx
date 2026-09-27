@@ -9,10 +9,12 @@ interface TicketsScreenProps {
   houses: House[];
   onOpenTicket: (id: number) => void;
   onReport: () => void;
+  /** «Заказать услугу» — поверка счётчика, замена батарей. */
+  onService: () => void;
   onHouseChat: () => void;
 }
 
-export function TicketsScreen({ tickets, houses, onOpenTicket, onReport, onHouseChat }: TicketsScreenProps) {
+export function TicketsScreen({ tickets, houses, onOpenTicket, onReport, onService, onHouseChat }: TicketsScreenProps) {
   const active = tickets.filter((ticket) => isActive(ticket.status));
   const closed = tickets.filter((ticket) => !isActive(ticket.status));
 
@@ -55,6 +57,9 @@ export function TicketsScreen({ tickets, houses, onOpenTicket, onReport, onHouse
       <div className="page__footer">
         <Button variant="primary" size="large" stretched onClick={onReport}>
           Сообщить о проблеме
+        </Button>
+        <Button variant="secondary" size="large" stretched onClick={onService}>
+          Заказать услугу
         </Button>
         <Button variant="secondary" size="large" stretched onClick={onHouseChat}>
           Чат дома
