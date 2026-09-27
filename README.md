@@ -321,5 +321,5 @@ flowchart LR
 
 ## 🛠️ Для разработчиков
 
-Правила — в [CLAUDE.md](CLAUDE.md): Conventional Commits, секреты только в `.env`, схема БД и сценарий диалога — только после согласования.
+Правила — в [CONTRIBUTING.md](CONTRIBUTING.md): Conventional Commits, секреты только в `.env`, схема БД и сценарий диалога — только после согласования.
 Журнал пополняется в конце каждого дня: [`docs/changelog.html`](docs/changelog.html) → PDF → краткая версия здесь.
