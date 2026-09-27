@@ -179,6 +179,22 @@ env_set() {
   fi
 }
 
+# Подходят ли логин и пароль из .env к базе. Поднимает только db; пароль
+# берётся из окружения контейнера (оно из .env) — в аргументы команд не попадает.
+db_auth_ok() {
+  $SUDO docker compose up -d db >/dev/null 2>&1 || return 1
+  for _ in $(seq 1 30); do
+    if $SUDO docker compose exec -T db pg_isready -q >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  # Не через 127.0.0.1: в образе postgres петля — trust, пароль там не проверяется.
+  # Через сетевой адрес контейнера — как входят api и migrate (scram-sha-256).
+  # shellcheck disable=SC2016 # $POSTGRES_* и $(hostname -i) раскрывает sh внутри контейнера
+  $SUDO docker compose exec -T db sh -c \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$(hostname -i | cut -d" " -f1)" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1"' \
+    >/dev/null 2>&1
+}
+
 token_ready() {
   case "$1" in
     ''|paste-your-*|your-*|change-me*) return 1 ;;
@@ -289,10 +305,27 @@ fi
 PG_USER="$(env_get POSTGRES_USER "$ENV_FILE")"; PG_USER="${PG_USER:-max}"
 PG_DB="$(env_get POSTGRES_DB "$ENV_FILE")";     PG_DB="${PG_DB:-max_dispatcher}"
 PG_PASS=''
+RECREATE_DB=0
 if [ "$DB_EXISTS" -eq 1 ]; then
-  printf '%s  База уже создана: пользователь %s, база %s. Поменять их можно только вместе%s\n' "$DIM" "$PG_USER" "$PG_DB" "$N"
-  printf '%s  с пересозданием базы (docker compose down -v — данные удалятся), поэтому не трогаю.%s\n' "$DIM" "$N"
-else
+  case "$(env_get POSTGRES_PASSWORD "$ENV_FILE")" in
+    change-me*|'')
+      # Том базы есть, а пароля от неё в .env нет: прошлая установка или
+      # неудачный запуск, после которого .env создан заново. С новым паролем
+      # в старую базу не войти — api и migrate упадут на входе.
+      warn "База уже есть (том ${PROJECT_NAME}_pgdata), а пароля от неё в .env нет."
+      ask_yn RECREATE_DB "Удалить эту базу со всеми данными и создать новую?" n
+      if [ "$RECREATE_DB" -eq 0 ]; then
+        printf '%s  Тогда нужен пароль от неё — перед запуском скрипт проверит вход.%s\n' "$DIM" "$N"
+      fi
+      ;;
+    *)
+      printf '%s  База уже создана: пользователь %s, база %s. Поменять их можно только вместе%s\n' "$DIM" "$PG_USER" "$PG_DB" "$N"
+      printf '%s  с пересозданием базы. Перед запуском проверю, что пароль из .env к ней подходит.%s\n' "$DIM" "$N"
+      ;;
+  esac
+fi
+if [ "$RECREATE_DB" -eq 1 ]; then DB_EXISTS=0; fi
+if [ "$DB_EXISTS" -eq 0 ]; then
   NAME_RE='^[a-z_][a-z0-9_]{0,62}$'
   while :; do
     ask PG_USER "Логин пользователя БД" "$PG_USER"
@@ -398,8 +431,10 @@ if [ -n "$NEW_TOKEN" ]; then printf '  Токен бота       будет за
 elif [ "${KEEP_TOKEN:-0}" -eq 1 ]; then printf '  Токен бота       остаётся прежним\n'
 else printf '  Токен бота       %sвписать позже%s — бот не запустится без него\n' "$Y" "$N"; fi
 printf '  Тестовые данные  %s\n' "$(yesno "$WANT_SEED")"
-if [ "$DB_EXISTS" -eq 1 ]; then
-  printf '  PostgreSQL       база уже есть (%s / %s) — без изменений\n' "$PG_USER" "$PG_DB"
+if [ "$RECREATE_DB" -eq 1 ]; then
+  printf '  PostgreSQL       %sстарая база будет УДАЛЕНА%s, новая: пользователь %s, база %s\n' "$R" "$N" "$PG_USER" "$PG_DB"
+elif [ "$DB_EXISTS" -eq 1 ]; then
+  printf '  PostgreSQL       база уже есть (%s / %s) — без изменений, вход проверю перед запуском\n' "$PG_USER" "$PG_DB"
 else
   printf '  PostgreSQL       пользователь %s, база %s, пароль задан (в вывод не попадает)\n' "$PG_USER" "$PG_DB"
 fi
@@ -588,10 +623,7 @@ if [ "$TARGET_USER" != "root" ]; then $SUDO chown "$TARGET_USER:$TARGET_USER" "$
 # Логин, пароль и имя БД — только пока база не создана: они применяются при
 # initdb, потом правка .env просто отрезала бы api и migrate от базы.
 if [ "$DB_EXISTS" -eq 1 ]; then
-  case "$(env_get POSTGRES_PASSWORD "$ENV_FILE")" in
-    change-me*|'') warn "Пароль БД — заглушка, но база уже создана. Сменить можно только с пересозданием: docker compose down -v" ;;
-    *) log "PostgreSQL: база уже создана — логин, пароль и имя не меняю." ;;
-  esac
+  log "PostgreSQL: база уже создана — логин, пароль и имя не меняю."
 else
   env_set POSTGRES_USER "$PG_USER"
   env_set POSTGRES_DB "$PG_DB"
@@ -629,8 +661,46 @@ token_ready "$(env_get MAX_BOT_TOKEN "$ENV_FILE")" && TOKEN_OK=1
 STARTED=0
 if [ "$TOKEN_OK" -eq 1 ]; then
   section "Запуск"
+
+  if [ "$RECREATE_DB" -eq 1 ]; then
+    # Житель подтвердил «удалить базу» ещё в вопросах; здесь — после «Начинаем?».
+    $SUDO docker compose down -v >/dev/null 2>&1 || true
+    $SUDO docker volume rm "${PROJECT_NAME}_pgdata" >/dev/null 2>&1 || true
+    log "Старая база удалена — будет создана новая."
+  elif [ "$DB_EXISTS" -eq 1 ]; then
+    # Пароль из .env к существующей базе может не подойти — тогда migrate
+    # упадёт с «password authentication failed». Проверяем заранее и даём
+    # исправить здесь же, а не после двух минут сборки.
+    while ! db_auth_ok; do
+      warn "Логин или пароль из .env не подходят к существующей базе (том ${PROJECT_NAME}_pgdata)."
+      if [ -z "$TTY_IN" ]; then
+        die "Впишите в ${ENV_FILE} прежние POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB и DATABASE_URL — или удалите базу: cd ${INSTALL_DIR} && docker compose down -v"
+      fi
+      wipe=0
+      ask_yn wipe "Удалить существующую базу со всеми данными и создать новую?" n
+      if [ "$wipe" -eq 1 ]; then
+        $SUDO docker compose down -v >/dev/null 2>&1 || true
+        $SUDO docker volume rm "${PROJECT_NAME}_pgdata" >/dev/null 2>&1 || true
+        log "Старая база удалена — будет создана новая с паролем из .env."
+        break
+      fi
+      ask PG_USER "Логин от существующей базы" "$(env_get POSTGRES_USER "$ENV_FILE")"
+      ask PG_DB   "Название существующей базы" "$(env_get POSTGRES_DB "$ENV_FILE")"
+      ask_secret PG_PASS "Пароль от существующей базы (ввод скрыт, Enter — выйти):"
+      [ -n "$PG_PASS" ] || die "Остановлено. Пароль от базы — в .env прошлой установки (POSTGRES_PASSWORD)."
+      env_set POSTGRES_USER "$PG_USER"
+      env_set POSTGRES_DB "$PG_DB"
+      env_set POSTGRES_PASSWORD "$PG_PASS"
+      env_set DATABASE_URL "postgres://${PG_USER}:${PG_PASS}@db:5432/${PG_DB}"
+      unset PG_PASS
+    done
+    log "Вход в существующую базу проверен."
+  fi
+
   log "Собираю и поднимаю контейнеры — пара минут…"
-  $SUDO docker compose up -d --build
+  if ! $SUDO docker compose up -d --build; then
+    die "Контейнеры не поднялись. Причина — в логах: cd ${INSTALL_DIR} && docker compose logs migrate api | tail -40"
+  fi
   STARTED=1
   log "Запущено: db → migrate → api → bot."
 
