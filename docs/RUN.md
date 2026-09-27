@@ -719,9 +719,25 @@ GitHub держит редирект со старого адреса какое
 
 ## Проблемы, с которыми реально столкнулись при первом запуске
 
-Ничего из этого не баг в коде проекта — все три пункта воспроизводимы на
-любой свежей машине и стоят внимания при подготовке следующего компьютера
-к демо.
+Ничего из этого не баг в коде проекта — пункты воспроизводимы на любой
+свежей машине и стоят внимания при подготовке следующего компьютера к демо.
+
+### Сервер: зарубежный VPS не видит MAX, российский — не видит Docker (27.09.2026)
+
+- **Сервер должен быть в России:** с VPS в Финляндии `platform-api2.max.ru`
+  не принимает соединения — бот не работает (`docs/max-notes.md`).
+- **Из России закрыт Docker:** `download.docker.com` (установка Docker) и
+  `registry-1.docker.io` (образы `postgres`, `node`) — тайм-аут TLS. Установщик
+  обходит оба: ставит Docker из репозитория Ubuntu (`docker.io`,
+  `docker-compose-v2`, `docker-buildx`) и прописывает зеркало реестра в
+  `/etc/docker/daemon.json` (`mirror.gcr.io`, `dockerhub.timeweb.cloud` —
+  проверены 27.09.2026, отдают наши образы). Руками то же самое:
+
+  ```bash
+  apt-get install -y docker.io docker-compose-v2 docker-buildx
+  printf '{\n  "registry-mirrors": ["https://mirror.gcr.io", "https://dockerhub.timeweb.cloud"]\n}\n' > /etc/docker/daemon.json
+  systemctl restart docker
+  ```
 
 ### `docker` / `node` не найдены сразу после установки
 

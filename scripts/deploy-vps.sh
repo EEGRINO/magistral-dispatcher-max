@@ -682,6 +682,32 @@ else
   log "Docker установлен из репозитория Ubuntu."
 fi
 
+# Docker Hub из России бывает закрыт (27.09.2026: TLS handshake timeout к
+# registry-1.docker.io) — тогда образы postgres и node не скачать. Лечится
+# зеркалом реестра в /etc/docker/daemon.json. Кандидаты проверены 27.09.2026:
+# отдают наши образы. Уже настроенный daemon.json не трогаем — только подсказка.
+if ! curl -sS -m 15 -o /dev/null https://registry-1.docker.io/v2/ 2>/dev/null; then
+  if $SUDO test -f /etc/docker/daemon.json; then
+    warn "Docker Hub недоступен, а /etc/docker/daemon.json уже есть — не трогаю."
+    warn "Если сборка упадёт на скачивании образов, добавьте туда \"registry-mirrors\": [\"https://mirror.gcr.io\"]."
+  else
+    mirrors=()
+    accept='Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+    for m in https://mirror.gcr.io https://dockerhub.timeweb.cloud; do
+      code="$(curl -sS -m 15 -o /dev/null -H "$accept" -w '%{http_code}' "$m/v2/library/postgres/manifests/16-alpine" 2>/dev/null || true)"
+      if [ "$code" = 200 ]; then mirrors+=("\"$m\""); fi
+    done
+    if [ "${#mirrors[@]}" -gt 0 ]; then
+      list="$(IFS=,; echo "${mirrors[*]}")"
+      printf '{\n  "registry-mirrors": [%s]\n}\n' "$list" | $SUDO tee /etc/docker/daemon.json >/dev/null
+      $SUDO systemctl restart docker
+      log "Docker Hub недоступен — образы будут качаться через зеркало: ${list//\"/}."
+    else
+      warn "Docker Hub недоступен, и проверенные зеркала тоже — сборка, скорее всего, упадёт на скачивании образов."
+    fi
+  fi
+fi
+
 # Группа docker действует только в НОВОЙ сессии — сам скрипт ходит через $SUDO.
 NEED_RELOGIN=0
 if [ "$TARGET_USER" != "root" ] && ! id -nG "$TARGET_USER" | tr ' ' '\n' | grep -qx docker; then
