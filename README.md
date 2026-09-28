@@ -289,6 +289,7 @@ flowchart LR
 | [`docs/RUN.md`](docs/RUN.md) | запуск, деплой, nginx, работа УК, разбор реальных проблем |
 | [`docs/excel-import.md`](docs/excel-import.md) | импорт жителей из Excel: как оформить таблицу, шаблон, ошибки |
 | [`docs/api.md`](docs/api.md) | контракт api — на него завязаны бот и мини-приложение |
+| [`docs/openapi.yaml`](docs/openapi.yaml) | OpenAPI 3.1 — выгружен из схем маршрутов (`cd api && npm run openapi`), публичные и внутренние методы помечены тегами |
 | [`docs/db-overview.md`](docs/db-overview.md) | как устроено хранение данных — без SQL |
 | [`docs/Решения_проекта.md`](docs/Решения_проекта.md) | принятые решения и почему |
 | [`docs/max-notes.md`](docs/max-notes.md) | **единственный** источник правды по MAX Bot API и Bridge |

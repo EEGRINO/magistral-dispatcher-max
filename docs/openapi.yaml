@@ -1,0 +1,3850 @@
+# Файл выгружен из схем api: cd api && npm run openapi. Руками не править.
+openapi: 3.1.0
+info:
+  title: Диспетчер обращений ЖКХ в MAX — api
+  version: "0.16"
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: |-
+    Выгружено из схем маршрутов (npm run openapi в api/); подробное описание — docs/api.md.
+
+    **public** — доступны снаружи: `/health` на домене api и `/app/*` мини-приложения на его домене как `/api/app/*`, с подписью initData MAX в заголовке `X-Max-Init-Data`.
+
+    **internal** — только из внутренней сети docker compose (бот, команда УК `uk`): запрос через прокси получает 404 `route_not_found` независимо от настроек nginx.
+servers:
+  - url: https://{appDomain}/api
+    description: "мини-приложение: только /app/*"
+    variables:
+      appDomain:
+        default: app.example.ru
+  - url: https://{apiDomain}
+    description: только /health
+    variables:
+      apiDomain:
+        default: api.example.ru
+  - url: http://api:3000
+    description: внутренняя сеть docker compose — все маршруты
+tags:
+  - name: public
+    description: доступны снаружи
+  - name: internal
+    description: только из внутренней сети compose
+components:
+  securitySchemes:
+    maxInitData:
+      type: apiKey
+      in: header
+      name: X-Max-Init-Data
+      description: initData из MAX Bridge (window.WebApp.initData); api проверяет подпись токеном бота
+paths:
+  /admin/houses:
+    get:
+      operationId: getAdminHouses
+      summary: Дома УК; с ?address= — только дом с этим адресом (0 или 1)
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: address
+          in: query
+          required: false
+          schema:
+            minLength: 1
+            maxLength: 200
+            type: string
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  houses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        address:
+                          type: string
+                        street:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        number:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        chat_link:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        invite_code:
+                          type: string
+                        residents:
+                          minimum: 0
+                          type: integer
+                        created_at:
+                          format: date-time
+                          type: string
+                      required:
+                        - id
+                        - address
+                        - street
+                        - number
+                        - chat_link
+                        - invite_code
+                        - residents
+                        - created_at
+                required:
+                  - houses
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    post:
+      operationId: postAdminHouses
+      summary: Завести дом. Адрес разбирается на улицу и номер — как при вводе жителем
+      tags:
+        - internal
+      security: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                address:
+                  minLength: 1
+                  maxLength: 200
+                  type: string
+                chat_link:
+                  pattern: ^https://
+                  maxLength: 2048
+                  type:
+                    - string
+                    - "null"
+              required:
+                - address
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  house:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      address:
+                        type: string
+                      street:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      number:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      chat_link:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      invite_code:
+                        type: string
+                      residents:
+                        minimum: 0
+                        type: integer
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - address
+                      - street
+                      - number
+                      - chat_link
+                      - invite_code
+                      - residents
+                      - created_at
+                required:
+                  - house
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/houses/{id}:
+    patch:
+      operationId: patchAdminHousesId
+      summary: "Изменить адрес дома и/или ссылку на чат (chat_link: null — убрать)"
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              minProperties: 1
+              type: object
+              properties:
+                address:
+                  minLength: 1
+                  maxLength: 200
+                  type: string
+                chat_link:
+                  pattern: ^https://
+                  maxLength: 2048
+                  type:
+                    - string
+                    - "null"
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  house:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      address:
+                        type: string
+                      street:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      number:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      chat_link:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      invite_code:
+                        type: string
+                      residents:
+                        minimum: 0
+                        type: integer
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - address
+                      - street
+                      - number
+                      - chat_link
+                      - invite_code
+                      - residents
+                      - created_at
+                required:
+                  - house
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/residents:
+    get:
+      operationId: getAdminResidents
+      summary: Жители; фильтры по дому и телефону, архив — по include_archived
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: house_id
+          in: query
+          required: false
+          schema:
+            minimum: 1
+            type: integer
+        - name: phone
+          in: query
+          required: false
+          description: +7 и 10 цифр
+          schema:
+            pattern: ^\+7[0-9]{10}$
+            description: +7 и 10 цифр
+            type: string
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            default: false
+            type: boolean
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        phone:
+                          type: string
+                        full_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        house_id:
+                          anyOf:
+                            - minimum: 1
+                              type: integer
+                            - type: "null"
+                        house_address:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        entrance:
+                          anyOf:
+                            - type: integer
+                            - type: "null"
+                        floor:
+                          anyOf:
+                            - type: integer
+                            - type: "null"
+                        apartment:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        contract_number:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        premises_count:
+                          type: integer
+                        max_linked:
+                          type: boolean
+                        archived_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        created_at:
+                          format: date-time
+                          type: string
+                        updated_at:
+                          format: date-time
+                          type: string
+                      required:
+                        - id
+                        - phone
+                        - full_name
+                        - house_id
+                        - house_address
+                        - entrance
+                        - floor
+                        - apartment
+                        - contract_number
+                        - premises_count
+                        - max_linked
+                        - archived_at
+                        - created_at
+                        - updated_at
+                required:
+                  - residents
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    post:
+      operationId: postAdminResidents
+      summary: Завести жителя. Телефон уникален среди жителей не в архиве
+      tags:
+        - internal
+      security: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                phone:
+                  pattern: ^\+7[0-9]{10}$
+                  description: +7 и 10 цифр
+                  type: string
+                full_name:
+                  minLength: 1
+                  maxLength: 200
+                  type:
+                    - string
+                    - "null"
+                house_id:
+                  minimum: 1
+                  type:
+                    - integer
+                    - "null"
+                entrance:
+                  minimum: 1
+                  maximum: 100
+                  type:
+                    - integer
+                    - "null"
+                floor:
+                  minimum: -5
+                  maximum: 200
+                  type:
+                    - integer
+                    - "null"
+                apartment:
+                  minLength: 1
+                  maxLength: 16
+                  type:
+                    - string
+                    - "null"
+                contract_number:
+                  minLength: 1
+                  maxLength: 64
+                  type:
+                    - string
+                    - "null"
+              required:
+                - phone
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      phone:
+                        type: string
+                      full_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      house_address:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      entrance:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      floor:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      apartment:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contract_number:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      premises_count:
+                        type: integer
+                      max_linked:
+                        type: boolean
+                      archived_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - phone
+                      - full_name
+                      - house_id
+                      - house_address
+                      - entrance
+                      - floor
+                      - apartment
+                      - contract_number
+                      - premises_count
+                      - max_linked
+                      - archived_at
+                      - created_at
+                      - updated_at
+                required:
+                  - resident
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/residents/{id}:
+    patch:
+      operationId: patchAdminResidentsId
+      summary: Изменить телефон, дом, подъезд, этаж, квартиру, договор (null — стереть)
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              minProperties: 1
+              type: object
+              properties:
+                phone:
+                  pattern: ^\+7[0-9]{10}$
+                  description: +7 и 10 цифр
+                  type: string
+                full_name:
+                  minLength: 1
+                  maxLength: 200
+                  type:
+                    - string
+                    - "null"
+                house_id:
+                  minimum: 1
+                  type:
+                    - integer
+                    - "null"
+                entrance:
+                  minimum: 1
+                  maximum: 100
+                  type:
+                    - integer
+                    - "null"
+                floor:
+                  minimum: -5
+                  maximum: 200
+                  type:
+                    - integer
+                    - "null"
+                apartment:
+                  minLength: 1
+                  maxLength: 16
+                  type:
+                    - string
+                    - "null"
+                contract_number:
+                  minLength: 1
+                  maxLength: 64
+                  type:
+                    - string
+                    - "null"
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      phone:
+                        type: string
+                      full_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      house_address:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      entrance:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      floor:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      apartment:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contract_number:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      premises_count:
+                        type: integer
+                      max_linked:
+                        type: boolean
+                      archived_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - phone
+                      - full_name
+                      - house_id
+                      - house_address
+                      - entrance
+                      - floor
+                      - apartment
+                      - contract_number
+                      - premises_count
+                      - max_linked
+                      - archived_at
+                      - created_at
+                      - updated_at
+                required:
+                  - resident
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/residents/{id}/archive:
+    post:
+      operationId: postAdminResidentsIdArchive
+      summary: "Убрать жителя в архив: войти больше нельзя, заявки остаются. Повторный вызов — без изменений"
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      phone:
+                        type: string
+                      full_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      house_address:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      entrance:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      floor:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      apartment:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contract_number:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      premises_count:
+                        type: integer
+                      max_linked:
+                        type: boolean
+                      archived_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - phone
+                      - full_name
+                      - house_id
+                      - house_address
+                      - entrance
+                      - floor
+                      - apartment
+                      - contract_number
+                      - premises_count
+                      - max_linked
+                      - archived_at
+                      - created_at
+                      - updated_at
+                required:
+                  - resident
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /admin/tickets:
+    get:
+      operationId: getAdminTickets
+      summary: "Заявки для УК/диспетчера, новые сверху; фильтры: дом, только незакрытые"
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: house_id
+          in: query
+          required: false
+          schema:
+            minimum: 1
+            type: integer
+        - name: active
+          in: query
+          required: false
+          schema:
+            default: false
+            type: boolean
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        resident_id:
+                          minimum: 1
+                          type: integer
+                        house_address:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        problem_type:
+                          type: string
+                        place:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        detail_code:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        rule_id:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          anyOf:
+                            - const: new
+                              type: string
+                            - const: in_progress
+                              type: string
+                            - const: resolved
+                              type: string
+                            - const: cancelled
+                              type: string
+                        responsible_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        deadline_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        created_at:
+                          format: date-time
+                          type: string
+                      required:
+                        - id
+                        - resident_id
+                        - house_address
+                        - problem_type
+                        - place
+                        - detail_code
+                        - description
+                        - rule_id
+                        - status
+                        - responsible_name
+                        - deadline_at
+                        - created_at
+                required:
+                  - tickets
+  /admin/tickets/{id}/status:
+    post:
+      operationId: postAdminTicketsIdStatus
+      summary: Сменить статус заявки; житель получит уведомление от бота
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                status:
+                  anyOf:
+                    - const: new
+                      type: string
+                    - const: in_progress
+                      type: string
+                    - const: resolved
+                      type: string
+                    - const: cancelled
+                      type: string
+              required:
+                - status
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_address:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_address
+                      - problem_type
+                      - place
+                      - detail_code
+                      - description
+                      - rule_id
+                      - status
+                      - responsible_name
+                      - deadline_at
+                      - created_at
+                  changed:
+                    type: boolean
+                required:
+                  - ticket
+                  - changed
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /app/me:
+    get:
+      operationId: getAppMe
+      summary: "Мини-апп: кто я и мои дома (адрес, чат, телефон АДС, газ, УК)"
+      tags:
+        - public
+      security:
+        - maxInitData: []
+      parameters: []
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident_id:
+                    minimum: 1
+                    type: integer
+                  house:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            minimum: 1
+                            type: integer
+                          address:
+                            type: string
+                          chat_link:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          emergency_phone:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          has_gas:
+                            type: boolean
+                          uk_name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          timezone:
+                            type: string
+                        required:
+                          - id
+                          - address
+                          - chat_link
+                          - emergency_phone
+                          - has_gas
+                          - uk_name
+                          - timezone
+                      - type: "null"
+                  houses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        address:
+                          type: string
+                        chat_link:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        emergency_phone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        has_gas:
+                          type: boolean
+                        uk_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          type: string
+                      required:
+                        - id
+                        - address
+                        - chat_link
+                        - emergency_phone
+                        - has_gas
+                        - uk_name
+                        - timezone
+                required:
+                  - resident_id
+                  - house
+                  - houses
+        "401":
+          description: initData мини-приложения нет или подпись неверна
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Аккаунт MAX не привязан к жителю
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "503":
+          description: Сервис не настроен (нет токена бота)
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /app/tickets:
+    get:
+      operationId: getAppTickets
+      summary: "Мини-апп: мои заявки, новые сверху (активные и решённые)"
+      tags:
+        - public
+      security:
+        - maxInitData: []
+      parameters: []
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        resident_id:
+                          minimum: 1
+                          type: integer
+                        house_id:
+                          anyOf:
+                            - minimum: 1
+                              type: integer
+                            - type: "null"
+                        problem_type:
+                          type: string
+                        place:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        detail_code:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        rule_id:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        responsible_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        deadline_verified:
+                          type: boolean
+                        timezone:
+                          type: string
+                        status:
+                          anyOf:
+                            - const: new
+                              type: string
+                            - const: in_progress
+                              type: string
+                            - const: resolved
+                              type: string
+                            - const: cancelled
+                              type: string
+                        status_changed_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        assigned_organization_id:
+                          anyOf:
+                            - minimum: 1
+                              type: integer
+                            - type: "null"
+                        deadline_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        created_at:
+                          format: date-time
+                          type: string
+                        updated_at:
+                          format: date-time
+                          type: string
+                      required:
+                        - id
+                        - resident_id
+                        - house_id
+                        - problem_type
+                        - place
+                        - description
+                        - detail_code
+                        - rule_id
+                        - responsible_name
+                        - deadline_verified
+                        - timezone
+                        - status
+                        - status_changed_at
+                        - assigned_organization_id
+                        - deadline_at
+                        - created_at
+                        - updated_at
+                required:
+                  - tickets
+        "401":
+          description: initData мини-приложения нет или подпись неверна
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Аккаунт MAX не привязан к жителю
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "503":
+          description: Сервис не настроен (нет токена бота)
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+    post:
+      operationId: postAppTickets
+      summary: "Мини-апп: подать заявку от своего имени — с той же маршрутизацией, что и в боте"
+      tags:
+        - public
+      security:
+        - maxInitData: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                problem_type:
+                  minLength: 1
+                  maxLength: 64
+                  pattern: ^[a-z_]+$
+                  type: string
+                place:
+                  minLength: 1
+                  maxLength: 64
+                  pattern: ^[a-z_]+$
+                  type:
+                    - string
+                    - "null"
+                description:
+                  minLength: 1
+                  maxLength: 4000
+                  type:
+                    - string
+                    - "null"
+                detail_code:
+                  minLength: 1
+                  maxLength: 64
+                  pattern: ^[a-z_]+$
+                  type:
+                    - string
+                    - "null"
+                house_id:
+                  minimum: 1
+                  type: integer
+              required:
+                - problem_type
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_verified:
+                        type: boolean
+                      timezone:
+                        type: string
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      status_changed_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      assigned_organization_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_id
+                      - problem_type
+                      - place
+                      - description
+                      - detail_code
+                      - rule_id
+                      - responsible_name
+                      - deadline_verified
+                      - timezone
+                      - status
+                      - status_changed_at
+                      - assigned_organization_id
+                      - deadline_at
+                      - created_at
+                      - updated_at
+                required:
+                  - ticket
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "401":
+          description: initData мини-приложения нет или подпись неверна
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Аккаунт MAX не привязан к жителю
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "503":
+          description: Сервис не настроен (нет токена бота)
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /app/tickets/{id}/cancel:
+    post:
+      operationId: postAppTicketsIdCancel
+      summary: "Мини-апп: отменить свою «принятую» заявку; чужая — 404"
+      tags:
+        - public
+      security:
+        - maxInitData: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_verified:
+                        type: boolean
+                      timezone:
+                        type: string
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      status_changed_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      assigned_organization_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_id
+                      - problem_type
+                      - place
+                      - description
+                      - detail_code
+                      - rule_id
+                      - responsible_name
+                      - deadline_verified
+                      - timezone
+                      - status
+                      - status_changed_at
+                      - assigned_organization_id
+                      - deadline_at
+                      - created_at
+                      - updated_at
+                required:
+                  - ticket
+        "401":
+          description: initData мини-приложения нет или подпись неверна
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "403":
+          description: Аккаунт MAX не привязан к жителю
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "503":
+          description: Сервис не настроен (нет токена бота)
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /health:
+    get:
+      operationId: getHealth
+      summary: Живость сервиса и соединения с БД
+      tags:
+        - public
+      security: []
+      parameters: []
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    anyOf:
+                      - const: ok
+                        type: string
+                      - const: degraded
+                        type: string
+                  service:
+                    const: api
+                    type: string
+                  db:
+                    anyOf:
+                      - const: ok
+                        type: string
+                      - const: down
+                        type: string
+                  ts:
+                    format: date-time
+                    type: string
+                required:
+                  - status
+                  - service
+                  - db
+                  - ts
+        "503":
+          description: Сервис не настроен (нет токена бота)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    anyOf:
+                      - const: ok
+                        type: string
+                      - const: degraded
+                        type: string
+                  service:
+                    const: api
+                    type: string
+                  db:
+                    anyOf:
+                      - const: ok
+                        type: string
+                      - const: down
+                        type: string
+                  ts:
+                    format: date-time
+                    type: string
+                required:
+                  - status
+                  - service
+                  - db
+                  - ts
+  /notifications/{event_id}/delivered:
+    post:
+      operationId: postNotificationsEventIdDelivered
+      summary: Бот доставил уведомление о смене статуса — записать событие notified
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    const: true
+                    type: boolean
+                required:
+                  - ok
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /notifications/pending:
+    get:
+      operationId: getNotificationsPending
+      summary: Недоставленные уведомления о смене статуса — по последнему изменению каждой заявки
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            minimum: 1
+            maximum: 100
+            default: 20
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event_id:
+                          minimum: 1
+                          type: integer
+                        ticket_id:
+                          minimum: 1
+                          type: integer
+                        new_status:
+                          anyOf:
+                            - const: new
+                              type: string
+                            - const: in_progress
+                              type: string
+                            - const: resolved
+                              type: string
+                            - const: cancelled
+                              type: string
+                        problem_type:
+                          type: string
+                        responsible_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        changed_at:
+                          format: date-time
+                          type: string
+                        timezone:
+                          type: string
+                        max_chat_id:
+                          type: integer
+                      required:
+                        - event_id
+                        - ticket_id
+                        - new_status
+                        - problem_type
+                        - responsible_name
+                        - changed_at
+                        - timezone
+                        - max_chat_id
+                required:
+                  - notifications
+  /residents/{id}/house:
+    get:
+      operationId: getResidentsIdHouse
+      summary: "Дом жителя со ссылкой на чат; house: null — дом неизвестен"
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  house:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            minimum: 1
+                            type: integer
+                          address:
+                            type: string
+                          chat_link:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          emergency_phone:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          has_gas:
+                            type: boolean
+                          uk_name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          timezone:
+                            type: string
+                        required:
+                          - id
+                          - address
+                          - chat_link
+                          - emergency_phone
+                          - has_gas
+                          - uk_name
+                          - timezone
+                      - type: "null"
+                required:
+                  - house
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/{id}/house-by-address:
+    post:
+      operationId: postResidentsIdHouseByAddress
+      summary: Дом по адресу, введённому жителем; заполняет дом жителя, если он неизвестен
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                address:
+                  minLength: 1
+                  maxLength: 200
+                  description: как ввёл житель
+                  type: string
+              required:
+                - address
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  house:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            minimum: 1
+                            type: integer
+                          address:
+                            type: string
+                          chat_link:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          emergency_phone:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          has_gas:
+                            type: boolean
+                          uk_name:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          timezone:
+                            type: string
+                        required:
+                          - id
+                          - address
+                          - chat_link
+                          - emergency_phone
+                          - has_gas
+                          - uk_name
+                          - timezone
+                      - type: "null"
+                required:
+                  - house
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/{id}/house-by-invite:
+    post:
+      operationId: postResidentsIdHouseByInvite
+      summary: Дом по коду из QR/диплинка; заполняет дом жителя, если он неизвестен
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                invite_code:
+                  minLength: 1
+                  maxLength: 128
+                  pattern: ^[A-Za-z0-9_-]+$
+                  type: string
+              required:
+                - invite_code
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  house:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      address:
+                        type: string
+                      chat_link:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      emergency_phone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      has_gas:
+                        type: boolean
+                      uk_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        type: string
+                    required:
+                      - id
+                      - address
+                      - chat_link
+                      - emergency_phone
+                      - has_gas
+                      - uk_name
+                      - timezone
+                  mismatch:
+                    type: boolean
+                required:
+                  - house
+                  - mismatch
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/{id}/houses:
+    get:
+      operationId: getResidentsIdHouses
+      summary: Дома жителя по его квартирам, основной первым; пусто — дом неизвестен
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  houses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        address:
+                          type: string
+                        chat_link:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        emergency_phone:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        has_gas:
+                          type: boolean
+                        uk_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        timezone:
+                          type: string
+                      required:
+                        - id
+                        - address
+                        - chat_link
+                        - emergency_phone
+                        - has_gas
+                        - uk_name
+                        - timezone
+                required:
+                  - houses
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/{id}/tickets:
+    get:
+      operationId: getResidentsIdTickets
+      summary: Заявки жителя, новые сверху; ?active=true — только незакрытые
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+        - name: active
+          in: query
+          required: false
+          schema:
+            default: false
+            type: boolean
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          minimum: 1
+                          type: integer
+                        resident_id:
+                          minimum: 1
+                          type: integer
+                        house_id:
+                          anyOf:
+                            - minimum: 1
+                              type: integer
+                            - type: "null"
+                        problem_type:
+                          type: string
+                        place:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        detail_code:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        rule_id:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        responsible_name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        deadline_verified:
+                          type: boolean
+                        timezone:
+                          type: string
+                        status:
+                          anyOf:
+                            - const: new
+                              type: string
+                            - const: in_progress
+                              type: string
+                            - const: resolved
+                              type: string
+                            - const: cancelled
+                              type: string
+                        status_changed_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        assigned_organization_id:
+                          anyOf:
+                            - minimum: 1
+                              type: integer
+                            - type: "null"
+                        deadline_at:
+                          anyOf:
+                            - format: date-time
+                              type: string
+                            - type: "null"
+                        created_at:
+                          format: date-time
+                          type: string
+                        updated_at:
+                          format: date-time
+                          type: string
+                      required:
+                        - id
+                        - resident_id
+                        - house_id
+                        - problem_type
+                        - place
+                        - description
+                        - detail_code
+                        - rule_id
+                        - responsible_name
+                        - deadline_verified
+                        - timezone
+                        - status
+                        - status_changed_at
+                        - assigned_organization_id
+                        - deadline_at
+                        - created_at
+                        - updated_at
+                required:
+                  - tickets
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/by-max-user/{max_user_id}:
+    get:
+      operationId: getResidentsByMaxUserMaxUserId
+      summary: Житель, к которому привязан этот пользователь MAX
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: max_user_id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      max_chat_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      max_user_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - house_id
+                      - max_chat_id
+                      - max_user_id
+                      - created_at
+                required:
+                  - resident
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/demo-login:
+    post:
+      operationId: postResidentsDemoLogin
+      summary: "Демо-вход: завести жителя с этим номером в демо-доме и привязать к нему MAX"
+      tags:
+        - internal
+      security: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                phone:
+                  pattern: ^\+7[0-9]{10}$
+                  description: +7 и 10 цифр
+                  type: string
+                max_chat_id:
+                  minimum: 1
+                  description: chat_id диалога с ботом в MAX
+                  type: integer
+                max_user_id:
+                  minimum: 1
+                  description: id пользователя MAX
+                  type: integer
+              required:
+                - phone
+                - max_chat_id
+                - max_user_id
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      max_chat_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      max_user_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - house_id
+                      - max_chat_id
+                      - max_user_id
+                      - created_at
+                required:
+                  - resident
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /residents/link-by-phone:
+    post:
+      operationId: postResidentsLinkByPhone
+      summary: Привязать диалог и пользователя MAX к жителю с этим номером
+      tags:
+        - internal
+      security: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                phone:
+                  pattern: ^\+7[0-9]{10}$
+                  description: +7 и 10 цифр
+                  type: string
+                max_chat_id:
+                  minimum: 1
+                  description: chat_id диалога с ботом в MAX
+                  type: integer
+                max_user_id:
+                  minimum: 1
+                  description: id пользователя MAX
+                  type: integer
+              required:
+                - phone
+                - max_chat_id
+                - max_user_id
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resident:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      max_chat_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      max_user_id:
+                        anyOf:
+                          - type: integer
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - house_id
+                      - max_chat_id
+                      - max_user_id
+                      - created_at
+                required:
+                  - resident
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /tickets:
+    post:
+      operationId: postTickets
+      summary: Создать заявку от имени жителя
+      tags:
+        - internal
+      security: []
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                resident_id:
+                  minimum: 1
+                  type: integer
+                problem_type:
+                  minLength: 1
+                  maxLength: 200
+                  type: string
+                place:
+                  minLength: 1
+                  maxLength: 200
+                  type:
+                    - string
+                    - "null"
+                description:
+                  minLength: 1
+                  maxLength: 4000
+                  type:
+                    - string
+                    - "null"
+                detail_code:
+                  minLength: 1
+                  maxLength: 64
+                  pattern: ^[a-z_]+$
+                  type:
+                    - string
+                    - "null"
+                house_id:
+                  minimum: 1
+                  type: integer
+              required:
+                - resident_id
+                - problem_type
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_verified:
+                        type: boolean
+                      timezone:
+                        type: string
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      status_changed_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      assigned_organization_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_id
+                      - problem_type
+                      - place
+                      - description
+                      - detail_code
+                      - rule_id
+                      - responsible_name
+                      - deadline_verified
+                      - timezone
+                      - status
+                      - status_changed_at
+                      - assigned_organization_id
+                      - deadline_at
+                      - created_at
+                      - updated_at
+                required:
+                  - ticket
+        "400":
+          description: Ошибка в запросе
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /tickets/{id}:
+    get:
+      operationId: getTicketsId
+      summary: Получить заявку по номеру
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_verified:
+                        type: boolean
+                      timezone:
+                        type: string
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      status_changed_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      assigned_organization_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_id
+                      - problem_type
+                      - place
+                      - description
+                      - detail_code
+                      - rule_id
+                      - responsible_name
+                      - deadline_verified
+                      - timezone
+                      - status
+                      - status_changed_at
+                      - assigned_organization_id
+                      - deadline_at
+                      - created_at
+                      - updated_at
+                required:
+                  - ticket
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+  /tickets/{id}/cancel:
+    post:
+      operationId: postTicketsIdCancel
+      summary: Житель отменяет свою «принятую» заявку (бот передаёт resident_id)
+      tags:
+        - internal
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            minimum: 1
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              type: object
+              properties:
+                resident_id:
+                  minimum: 1
+                  type: integer
+              required:
+                - resident_id
+      responses:
+        "200":
+          description: Успешно
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket:
+                    type: object
+                    properties:
+                      id:
+                        minimum: 1
+                        type: integer
+                      resident_id:
+                        minimum: 1
+                        type: integer
+                      house_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      problem_type:
+                        type: string
+                      place:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      description:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      detail_code:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      rule_id:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      responsible_name:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      deadline_verified:
+                        type: boolean
+                      timezone:
+                        type: string
+                      status:
+                        anyOf:
+                          - const: new
+                            type: string
+                          - const: in_progress
+                            type: string
+                          - const: resolved
+                            type: string
+                          - const: cancelled
+                            type: string
+                      status_changed_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      assigned_organization_id:
+                        anyOf:
+                          - minimum: 1
+                            type: integer
+                          - type: "null"
+                      deadline_at:
+                        anyOf:
+                          - format: date-time
+                            type: string
+                          - type: "null"
+                      created_at:
+                        format: date-time
+                        type: string
+                      updated_at:
+                        format: date-time
+                        type: string
+                    required:
+                      - id
+                      - resident_id
+                      - house_id
+                      - problem_type
+                      - place
+                      - description
+                      - detail_code
+                      - rule_id
+                      - responsible_name
+                      - deadline_verified
+                      - timezone
+                      - status
+                      - status_changed_at
+                      - assigned_organization_id
+                      - deadline_at
+                      - created_at
+                      - updated_at
+                required:
+                  - ticket
+        "404":
+          description: Не найдено
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
+        "409":
+          description: Конфликт с текущим состоянием
+          content:
+            application/json:
+              schema:
+                $id: ErrorResponse
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        description: Машиночитаемый код ошибки
+                        type: string
+                      message:
+                        description: Пояснение для человека
+                        type: string
+                      details:
+                        description: Подробности валидации, если есть
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - code
+                      - message
+                required:
+                  - error
