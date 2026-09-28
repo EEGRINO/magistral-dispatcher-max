@@ -72,8 +72,10 @@ docker compose exec db psql -U max -d max_dispatcher -c "SELECT id, address, inv
 ```
 
 Кнопка «Отправить заявку ЖКХ» открывает мини-приложение внутри MAX, только если
-его URL привязан к боту в `business.max.ru` (см. [`max-notes.md`](max-notes.md),
-«Подключение мини-приложения к боту»).
+его URL привязан к боту (см. [`max-notes.md`](max-notes.md),
+«Подключение мини-приложения к боту»). На хакатоне привязывают организаторы: адрес
+отправляется через [форму](https://sbor-ssylok-dlya-mini-prilojeniy.testograf.ru/),
+доступа к настройкам выданного бота у участников нет. Вне хакатона — в `business.max.ru`.
 
 Убедиться, что привязка действительно в базе:
 

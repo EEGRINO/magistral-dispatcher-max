@@ -1023,13 +1023,14 @@ if [ "$TOKEN_OK" -eq 0 ]; then
   step=$((step + 1))
 fi
 if [ "$WANT_NGINX" -eq 1 ] && [ "$TLS_OK" -eq 1 ]; then
-  printf '  %d. В настройках бота на business.max.ru указать адрес мини-приложения: %s\n' "$step" "$APP_URL"
+  printf '  %d. Привязать мини-приложение к боту: %s\n' "$step" "$APP_URL"
+  printf '     на хакатоне — через форму организаторов https://sbor-ssylok-dlya-mini-prilojeniy.testograf.ru/, иначе — на business.max.ru\n'
   step=$((step + 1))
 elif [ "$WANT_NGINX" -eq 1 ] && [ -n "$FRONT_PROXY" ]; then
   printf '  %d. В «%s» добавить прокси для домена мини-приложения:\n' "$step" "$FRONT_PROXY"
   printf '       куда — http://%s:%s (Forward Hostname/IP и Port в Nginx Proxy Manager),\n' "${server_ip:-IP-сервера}" "$NGINX_PORT"
   printf '       там же выпустить сертификат Let'\''s Encrypt и включить Force SSL.\n'
-  printf '     Затем в настройках бота на business.max.ru указать https://ваш-домен\n'
+  printf '     Затем привязать https://ваш-домен к боту: на хакатоне — через форму организаторов, иначе — на business.max.ru\n'
   step=$((step + 1))
 elif [ "$WANT_NGINX" -eq 1 ]; then
   printf '  %d. MAX принимает адрес мини-приложения только https://: нужен домен и сертификат (запустите скрипт снова).\n' "$step"
