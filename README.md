@@ -68,13 +68,13 @@
 
 ### Из архива релиза
 
-1. На странице **[Releases](https://github.com/EEGRINO/magistral-dispatcher-max/releases)** скачать архив нужной версии: `magistral-dispatcher-max-1.1.1.tar.gz` (или «Source code (tar.gz)» — внутри то же самое).
+1. На странице **[Releases](https://github.com/EEGRINO/magistral-dispatcher-max/releases)** скачать архив нужной версии: `magistral-dispatcher-max-1.1.2.tar.gz` (или «Source code (tar.gz)» — внутри то же самое).
 2. Загрузить его на сервер — `scp`, MobaXterm, WinSCP.
 3. Распаковать и запустить установщик из архива:
 
 ```bash
-tar xzf magistral-dispatcher-max-1.1.1.tar.gz
-sudo bash magistral-dispatcher-max-1.1.1/scripts/deploy-vps.sh
+tar xzf magistral-dispatcher-max-1.1.2.tar.gz
+sudo bash magistral-dispatcher-max-1.1.2/scripts/deploy-vps.sh
 ```
 
 Установщик сам поймёт, что запущен из архива, и вместо репозитория и ветки спросит «Ставить из этого архива?». Файлы копируются в каталог установки, дальше — те же вопросы, что ниже, начиная с портов. Deploy-ключ не нужен.
@@ -315,10 +315,10 @@ flowchart LR
 пересборка: `node scripts/build-changelog-pdf.mjs`). Дни считаются от сдачи: Д-0 — 30.09.
 
 <details open>
-<summary><b>28.09 · Д-2 — аварийные телефоны, сверка контракта, релизы 1.0.0 и 1.1.1</b></summary>
+<summary><b>28.09 · Д-2 — аварийные телефоны, сверка контракта, релизы 1.0.0 и 1.1.2</b></summary>
 
 - **Релиз 1.0.0**: архив версии ставится установщиком без git и доступа к GitHub, обновляется архивом новой версии с сохранением `.env` и базы
-- **Релиз 1.1.1**: демо-вход, удаление с сервера, OpenAPI — версия для сдачи
+- **Релиз 1.1.2**: демо-вход, удаление с сервера, OpenAPI, README в техническом виде — версия для сдачи
 - Демо-вход для жюри: номер не из базы УК → «Войти как тестовый житель» в тестовом доме; установщик включает его по умолчанию
 - OpenAPI 3.1 (`docs/openapi.yaml`) — выгружается из схем маршрутов api, проходит валидатор Redocly
 - README: что настоящее, а что смоделировано; мини-приложение на хакатоне привязывается через форму организаторов

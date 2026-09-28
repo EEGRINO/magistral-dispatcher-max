@@ -1,6 +1,6 @@
 {
   "name": "max-dispatcher-bot",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Диалог с жителем через MAX Bot API (long polling)",
   "type": "module",
