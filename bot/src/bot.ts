@@ -1285,6 +1285,17 @@ async function handleDemoLogin(target: SendTarget, userId: number | undefined): 
       await send(target, messages.accountLinkedElsewhere);
       return;
     }
+    // Флаг у бота есть, а у api демо-дома нет (не задан или не загружен seed) —
+    // не «сервис недоступен», а честный ответ, как без демо-входа.
+    if (error instanceof ApiClientError && (error.code === 'demo_disabled' || error.code === 'invalid_reference')) {
+      log.error('демо-вход не настроен: DEMO_LOGIN_HOUSE_ID не задан у api или такого дома нет — загрузите тестовые данные (seed)', {
+        user_id: userId,
+        code: error.code,
+      });
+      pendingDemoPhone.delete(userId);
+      await send(target, messages.phoneNotRegistered);
+      return;
+    }
     await serviceUnavailable(target, 'при демо-входе', { user_id: userId }, error);
     return;
   }

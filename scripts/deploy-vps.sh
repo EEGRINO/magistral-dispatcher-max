@@ -384,7 +384,15 @@ if [ -n "$NEW_TOKEN" ] && ! token_ready "$NEW_TOKEN"; then
   NEW_TOKEN=''
 fi
 
-ask_yn WANT_SEED "Загрузить тестовые данные (дома и УК для демо)?" n
+printf '%s  Демо-режим: номер, которого нет в базе УК, входит тестовым жителем в тестовый дом —%s\n' "$DIM" "$N"
+printf '%s  так бота проверяют жюри и тестировщики. Для реальной работы УК его выключают.%s\n' "$DIM" "$N"
+ask_yn WANT_DEMO "Демо-режим для проверки (тестовые дома + «Войти как тестовый житель»)?" y
+if [ "$WANT_DEMO" -eq 1 ]; then
+  # Демо-жителей селим только в тестовый дом — без тестовых данных его нет.
+  WANT_SEED=1
+else
+  ask_yn WANT_SEED "Загрузить тестовые данные (дома и УК для демо)?" n
+fi
 SEED_PHONES=''
 if [ "$WANT_SEED" -eq 1 ]; then
   printf '%s  Телефоны — персональные данные: пишутся только в .env, в вывод не попадают.%s\n' "$DIM" "$N"
@@ -549,6 +557,7 @@ if [ -n "$NEW_TOKEN" ]; then printf '  Токен бота       будет за
 elif [ "${KEEP_TOKEN:-0}" -eq 1 ]; then printf '  Токен бота       остаётся прежним\n'
 else printf '  Токен бота       %sвписать позже%s — бот не запустится без него\n' "$Y" "$N"; fi
 printf '  Тестовые данные  %s\n' "$(yesno "$WANT_SEED")"
+printf '  Демо-вход        %s\n' "$(yesno "$WANT_DEMO")"
 if [ "$RECREATE_DB" -eq 1 ]; then
   printf '  PostgreSQL       %sстарая база будет УДАЛЕНА%s, новая: пользователь %s, база %s\n' "$R" "$N" "$PG_USER" "$PG_DB"
 elif [ "$DB_EXISTS" -eq 1 ]; then
@@ -817,6 +826,10 @@ if [ "$WANT_SEED" -eq 1 ] && [ -n "$SEED_PHONES" ]; then
 fi
 unset SEED_PHONES
 
+# Демо-вход включается после seed, когда известен id тестового дома. До того —
+# выключен: .env из .env.example несёт «1», а на этой базе дом 1 может быть настоящим.
+env_set DEMO_LOGIN_HOUSE_ID ""
+
 if [ "$WANT_NGINX" -eq 1 ]; then env_set MINIAPP_DIST_DIR "$STATIC_DIR"; fi
 
 TOKEN_OK=0
@@ -873,8 +886,25 @@ if [ "$TOKEN_OK" -eq 1 ]; then
   STARTED=1
   log "Запущено: db → migrate → api → bot."
 
+  seed_out=''
   if [ "$WANT_SEED" -eq 1 ]; then
-    $SUDO docker compose run --rm -T migrate npm run seed | grep -E '^(Тестовые|  )' || true
+    seed_out="$($SUDO docker compose run --rm -T migrate npm run seed 2>&1)" \
+      || warn "Тестовые данные не загрузились: ${seed_out##*$'\n'}"
+    printf '%s\n' "$seed_out" | grep -E '^(Тестовые|  )' || true
+  fi
+
+  # Дом — из вывода seed: только тестовый, не первый попавшийся дом УК.
+  if [ "$WANT_DEMO" -eq 1 ]; then
+    demo_house="$(printf '%s\n' "$seed_out" | sed -n 's/^  демо-дом:[[:space:]]*id \([0-9][0-9]*\).*/\1/p')"
+    if [ -n "$demo_house" ]; then
+      env_set DEMO_LOGIN_HOUSE_ID "$demo_house"
+      # Новое значение из .env подхватят api и bot — compose пересоздаст только их.
+      $SUDO docker compose up -d >/dev/null 2>&1 || warn "Не перезапустились api и bot: cd ${INSTALL_DIR} && docker compose up -d"
+      log "Демо-вход включён: тестовый дом id ${demo_house}. Выключить — пустое DEMO_LOGIN_HOUSE_ID в .env, затем docker compose up -d."
+    else
+      warn "Демо-вход не включён: тестовый дом не найден. Загрузите данные (docker compose run --rm migrate npm run seed)"
+      warn "и впишите его id в DEMO_LOGIN_HOUSE_ID в .env."
+    fi
   fi
 fi
 

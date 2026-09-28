@@ -204,7 +204,9 @@ async function main() {
       `SELECT
          (SELECT count(*) FROM organizations) AS organizations,
          (SELECT count(*) FROM houses)        AS houses,
-         (SELECT count(*) FROM residents)     AS residents`,
+         (SELECT count(*) FROM residents)     AS residents,
+         (SELECT id FROM houses WHERE address = $1) AS demo_house_id`,
+      [firstHouse],
     );
 
     console.log('Тестовые данные загружены.');
@@ -212,6 +214,8 @@ async function main() {
     console.log(`  houses:        ${rows[0].houses}`);
     console.log(`  residents:     ${rows[0].residents}`);
     console.log(`  чат дома:      ${chatLink ? 'задан для первого дома' : 'не задан (SEED_HOUSE_CHAT_LINK пуст)'}`);
+    // Эту строку разбирает scripts/deploy-vps.sh — формат «демо-дом: id N» не менять.
+    console.log(`  демо-дом:      id ${rows[0].demo_house_id} — ${firstHouse} (DEMO_LOGIN_HOUSE_ID)`);
     console.log('');
     console.log('Напоминание: это ТЕСТОВЫЕ данные, не продакшен-справочник.');
   } catch (error) {
