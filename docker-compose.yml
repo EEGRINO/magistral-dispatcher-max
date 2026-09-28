@@ -80,6 +80,8 @@ services:
       RULES_PATH: /app/config/rules.yaml
       # Токен бота — api проверяет им подпись initData мини-приложения.
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?MAX_BOT_TOKEN не задан — скопируй .env.example в .env}
+      # Дом для демо-входа; пусто — выключен (см. .env.example).
+      DEMO_LOGIN_HOUSE_ID: ${DEMO_LOGIN_HOUSE_ID:-}
     volumes:
       # Справочники (правила маршрутизации) — монтируются, а не вшиваются в
       # образ: правка config/rules.yaml применяется перезапуском api
@@ -155,6 +157,8 @@ services:
       # Адрес api внутри сети compose: имя сервиса резолвится как хост.
       API_BASE_URL: http://api:${API_PORT:-3000}
       API_TIMEOUT_MS: ${API_TIMEOUT_MS:-5000}
+      # Демо-вход: боту важно только, включён ли он (кнопка тестового жителя).
+      DEMO_LOGIN_HOUSE_ID: ${DEMO_LOGIN_HOUSE_ID:-}
 
     depends_on:
       api:

@@ -48,6 +48,8 @@ export const Action = {
   restartDraft: 'draft:restart',
   /** «Отмена» выбора дома аварии: заявку не отправлять. */
   cancelEmergencyHouse: 'eh:cancel',
+  /** Демо-вход: номера нет у УК, войти в тестовую квартиру (DEMO_LOGIN_HOUSE_ID). */
+  demoLogin: 'demo:login',
 } as const;
 
 /**
@@ -315,3 +317,5 @@ export const confirmTicketKeyboard: MaxAttachment[] = keyboard([
 export const requestContactKeyboard: MaxAttachment[] = keyboard([
   [{ type: 'request_contact', text: 'Поделиться контактом' }],
 ]);
+
+export const demoLoginKeyboard: MaxAttachment[] = keyboard([callback('Войти как тестовый житель', Action.demoLogin)]);

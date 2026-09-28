@@ -28,6 +28,9 @@ export const notFound = (message: string): ApiError => new ApiError(404, 'not_fo
 export const phoneNotRegistered = (): ApiError =>
   new ApiError(404, 'phone_not_registered', 'Номер не привязан ни к одной квартире');
 
+/** Демо-вход не включён: DEMO_LOGIN_HOUSE_ID не задан. */
+export const demoDisabled = (): ApiError => new ApiError(404, 'demo_disabled', 'Демо-вход выключен');
+
 /** Ни QR-код, ни введённый адрес не совпали ни с одним домом. */
 export const houseNotFound = (message: string): ApiError => new ApiError(404, 'house_not_found', message);
 

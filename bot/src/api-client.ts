@@ -195,6 +195,17 @@ export class ApiClient {
     }
   }
 
+  /**
+   * Демо-вход: api заводит жителя с этим номером в демо-доме и привязывает к
+   * нему MAX. Номер уже есть у УК — просто вход. Звать только с номером,
+   * подтверждённым подписью контакта, как и linkByPhone.
+   */
+  async demoLogin(phone: string, maxChatId: number, maxUserId: number, signal?: AbortSignal): Promise<Resident> {
+    const path = '/residents/demo-login';
+    const parsed = await this.request('POST', path, { phone, max_chat_id: maxChatId, max_user_id: maxUserId }, signal);
+    return ApiClient.readResident(parsed, path);
+  }
+
   private static readHouse(parsed: unknown, path: string): House {
     const house = (parsed as { house?: House }).house;
     if (typeof house?.id !== 'number') {

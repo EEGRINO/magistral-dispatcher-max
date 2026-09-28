@@ -26,6 +26,20 @@ function readPort(): number {
   return raw;
 }
 
+/**
+ * Дом для демо-входа: жюри и тестировщики не заведены у УК, и без этого
+ * «Поделиться контактом» для них — тупик. Не задан — демо-вход выключен.
+ */
+function readDemoHouseId(): number | null {
+  const raw = process.env.DEMO_LOGIN_HOUSE_ID?.trim();
+  if (!raw) return null;
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`DEMO_LOGIN_HOUSE_ID должен быть id дома (целое > 0), получено: ${raw}`);
+  }
+  return id;
+}
+
 export const config = {
   port: readPort(),
   databaseUrl: requireEnv('DATABASE_URL'),
@@ -49,4 +63,7 @@ export const config = {
 
   /** Как часто разбирать адреса домов, заведённых в БД напрямую (house-normalizer.ts). */
   houseNormalizeIntervalMs: Number(process.env.HOUSE_NORMALIZE_INTERVAL_MS ?? 60_000),
+
+  /** Демо-вход в этот дом для номеров, которых нет у УК; null — выключен. */
+  demoHouseId: readDemoHouseId(),
 } as const;

@@ -33,6 +33,7 @@ import {
   awaitingAddress,
   liveMessage,
   pendingDangerText,
+  pendingDemoPhone,
   pendingInvite,
   recentEmergency,
   pendingEmergencyHouse,
@@ -49,6 +50,7 @@ import {
   ticketDetailsKeyboard,
   confirmDangerKeyboard,
   confirmTicketKeyboard,
+  demoLoginKeyboard,
   descriptionKeyboard,
   gasCalledKeyboard,
   houseChatKeyboard,
@@ -1222,7 +1224,12 @@ async function handleContact(target: SendTarget, senderId: number | undefined, c
     const result = await apiClient.linkByPhone(check.phone, target.chatId, senderId, shutdown.signal);
 
     if (result.kind === 'not_registered') {
-      log.info('номер не найден у УК', { user_id: senderId });
+      log.info('номер не найден у УК', { user_id: senderId, demo_login: config.demoLogin });
+      if (config.demoLogin) {
+        pendingDemoPhone.set(senderId, check.phone);
+        await send(target, messages.phoneNotRegisteredDemo, demoLoginKeyboard);
+        return;
+      }
       await send(target, messages.phoneNotRegistered);
       return;
     }
@@ -1239,16 +1246,52 @@ async function handleContact(target: SendTarget, senderId: number | undefined, c
   }
 
   log.info('житель вошёл', { resident_id: resident.id, user_id: senderId });
+  await finishLogin(target, senderId, resident, messages.loggedIn(resident.id));
+}
 
-  // Пришёл по QR до входа — сразу показываем чат дома.
-  const invite = pendingInvite.get(senderId);
+/** После входа: пришёл по QR до входа — сразу чат дома, иначе меню. */
+async function finishLogin(target: SendTarget, userId: number, resident: Resident, lead: string): Promise<void> {
+  const invite = pendingInvite.get(userId);
   if (invite) {
-    pendingInvite.delete(senderId);
-    await applyInvite(target, resident, invite, messages.loggedIn(resident.id));
+    pendingInvite.delete(userId);
+    await applyInvite(target, resident, invite, lead);
     return;
   }
 
-  await sendMenu(target, messages.loggedIn(resident.id));
+  await sendMenu(target, lead);
+}
+
+/**
+ * «Войти как тестовый житель». Номер берём из памяти — тот, что уже прошёл
+ * проверку подписи контакта; из кнопки его взять нельзя, payload подделывается.
+ */
+async function handleDemoLogin(target: SendTarget, userId: number | undefined): Promise<void> {
+  const phone = userId === undefined ? undefined : pendingDemoPhone.get(userId);
+
+  if (userId === undefined || phone === undefined || target.chatId === undefined) {
+    // Повторное нажатие после успешного входа — не пугаем «устарела», а даём меню.
+    const resident = userId === undefined ? null : await findResident(target, userId, 'при демо-входе');
+    if (resident === undefined) return;
+    await (resident ? sendMenu(target) : send(target, messages.demoLoginExpired, requestContactKeyboard));
+    return;
+  }
+
+  let resident: Resident;
+  try {
+    resident = await apiClient.demoLogin(phone, target.chatId, userId, shutdown.signal);
+  } catch (error) {
+    if (error instanceof ApiClientError && error.code === 'conflict') {
+      log.warn('аккаунт MAX уже привязан к другой квартире', { user_id: userId });
+      await send(target, messages.accountLinkedElsewhere);
+      return;
+    }
+    await serviceUnavailable(target, 'при демо-входе', { user_id: userId }, error);
+    return;
+  }
+
+  pendingDemoPhone.delete(userId);
+  log.info('житель вошёл через демо-вход', { resident_id: resident.id, user_id: userId });
+  await finishLogin(target, userId, resident, messages.demoLoggedIn(resident.id));
 }
 
 /**
@@ -1572,6 +1615,12 @@ async function dispatchCallback(target: SendTarget, userId: number | undefined, 
       await answer('Отменено');
       if (userId !== undefined) pendingEmergencyHouse.delete(userId);
       await showMenu(target, userId, messages.emergencyHouseCancelled);
+      return;
+    }
+
+    case Action.demoLogin: {
+      await answer('Вход');
+      await handleDemoLogin(target, userId);
       return;
     }
 

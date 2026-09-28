@@ -8,10 +8,12 @@
  * к себе чужую квартиру, просто назвав её номер.
  */
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
+import type { PoolClient } from 'pg';
 import { parseAddress } from '../address.js';
-import { pool } from '../db.js';
+import { config } from '../config.js';
+import { pool, withTransaction } from '../db.js';
 import { rejectProxied } from '../internal-only.js';
-import { addressUnrecognized, houseNotFound, notFound, phoneNotRegistered } from '../errors.js';
+import { addressUnrecognized, demoDisabled, houseNotFound, notFound, phoneNotRegistered } from '../errors.js';
 import {
   ErrorResponse,
   HouseByAddressBody,
@@ -108,6 +110,43 @@ async function resolveHouse(residentId: number, houseId: number): Promise<HouseD
   return house;
 }
 
+/** Так демо-жители видны УК в pgAdmin и в выгрузке — их легко найти и убрать. */
+const DEMO_FULL_NAME = 'Демо-вход';
+
+/**
+ * Привязать диалог и пользователя MAX к активному жителю с этим номером.
+ * undefined — такого жителя нет.
+ *
+ * Одним UPDATE, без предварительного SELECT: нет гонки между проверкой
+ * и записью. Если квартира уже была привязана к другому аккаунту MAX —
+ * перезаписываем: номер подтверждён подписью MAX, значит сейчас он
+ * принадлежит именно этому аккаунту.
+ *
+ * Если этот аккаунт MAX уже привязан к ДРУГОЙ квартире, сработает UNIQUE
+ * на max_user_id и ответ будет 409 conflict — одна квартира на аккаунт.
+ */
+async function linkPhone(
+  db: PoolClient | typeof pool,
+  phone: string,
+  maxChatId: number,
+  maxUserId: number,
+): Promise<(ResidentRow & { relinked: boolean }) | undefined> {
+  // Архивных жителей не трогаем: для бота их номера как будто нет.
+  const { rows } = await db.query<ResidentRow & { relinked: boolean }>(
+    `WITH previous AS (
+       SELECT max_user_id AS old_user_id FROM residents
+        WHERE phone = $1 AND archived_at IS NULL
+     )
+     UPDATE residents
+        SET max_chat_id = $2, max_user_id = $3, updated_at = now()
+      WHERE phone = $1 AND archived_at IS NULL
+  RETURNING ${RESIDENT_COLUMNS},
+            (SELECT old_user_id IS NOT NULL AND old_user_id <> $3 FROM previous) AS relinked`,
+    [phone, maxChatId, maxUserId],
+  );
+  return rows[0];
+}
+
 export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
   // Только для запросов изнутри сервера, см. internal-only.ts. Хук объявлен
   // внутри этого плагина — /health и /tickets он не касается.
@@ -129,30 +168,7 @@ export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
     },
     async (request) => {
       const { phone, max_chat_id, max_user_id } = request.body;
-
-      // Архивных жителей не трогаем: для бота их номера как будто нет.
-      //
-      // Одним UPDATE, без предварительного SELECT: нет гонки между проверкой
-      // и записью. Если квартира уже была привязана к другому аккаунту MAX —
-      // перезаписываем: номер подтверждён подписью MAX, значит сейчас он
-      // принадлежит именно этому аккаунту.
-      //
-      // Если этот аккаунт MAX уже привязан к ДРУГОЙ квартире, сработает UNIQUE
-      // на max_user_id и ответ будет 409 conflict — одна квартира на аккаунт.
-      const { rows } = await pool.query<ResidentRow & { relinked: boolean }>(
-        `WITH previous AS (
-           SELECT max_user_id AS old_user_id FROM residents
-            WHERE phone = $1 AND archived_at IS NULL
-         )
-         UPDATE residents
-            SET max_chat_id = $2, max_user_id = $3, updated_at = now()
-          WHERE phone = $1 AND archived_at IS NULL
-      RETURNING ${RESIDENT_COLUMNS},
-                (SELECT old_user_id IS NOT NULL AND old_user_id <> $3 FROM previous) AS relinked`,
-        [phone, max_chat_id, max_user_id],
-      );
-
-      const row = rows[0];
+      const row = await linkPhone(pool, phone, max_chat_id, max_user_id);
 
       if (!row) {
         throw phoneNotRegistered();
@@ -162,6 +178,53 @@ export const residentRoutes: FastifyPluginAsyncTypebox = async (app) => {
         // Номер телефона в лог не пишем — только id записи.
         request.log.warn({ resident_id: row.id }, 'квартира перепривязана к другому аккаунту MAX');
       }
+
+      return { resident: toResidentDto(row) };
+    },
+  );
+
+  app.post(
+    '/residents/demo-login',
+    {
+      schema: {
+        description: 'Демо-вход: завести жителя с этим номером в демо-доме и привязать к нему MAX',
+        body: LinkByPhoneBody,
+        response: {
+          200: ResidentResponse,
+          400: ErrorResponse,
+          404: ErrorResponse,
+          409: ErrorResponse,
+        },
+      },
+    },
+    async (request) => {
+      const houseId = config.demoHouseId;
+      if (houseId === null) throw demoDisabled();
+
+      const { phone, max_chat_id, max_user_id } = request.body;
+
+      const row = await withTransaction(async (client) => {
+        // Номер уже есть (УК успела завести, повторное нажатие) — второго
+        // жителя не создаём, просто входим, как через link-by-phone.
+        const created = await client.query<{ id: string }>(
+          `INSERT INTO residents (phone, full_name) VALUES ($1, $2)
+           ON CONFLICT (phone) WHERE archived_at IS NULL DO NOTHING
+           RETURNING id`,
+          [phone, DEMO_FULL_NAME],
+        );
+        const residentId = created.rows[0]?.id;
+        if (residentId !== undefined) {
+          await client.query('INSERT INTO resident_premises (resident_id, house_id) VALUES ($1, $2)', [
+            residentId,
+            houseId,
+          ]);
+          request.log.info({ resident_id: Number(residentId), house_id: houseId }, 'демо-вход: заведён тестовый житель');
+        }
+        return linkPhone(client, phone, max_chat_id, max_user_id);
+      });
+
+      // Только что вставили или он уже был — UPDATE не может его не найти.
+      if (!row) throw new Error('демо-житель не найден сразу после записи');
 
       return { resident: toResidentDto(row) };
     },
